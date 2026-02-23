@@ -1,6 +1,7 @@
 import { DashboardShell } from '@/components/layout/DashboardShell';
 import { createClient } from '@/lib/supabase/server';
 import { getAppSettings } from '@/app/(dashboard)/admin/settings/actions';
+import type { CurrencyCode } from '@/lib/currency';
 
 export const dynamic = 'force-dynamic';
 
@@ -9,7 +10,7 @@ export default async function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  let displayCurrency = 'MMK';
+  let displayCurrency: CurrencyCode = 'MMK';
   let currencyOverrides: Record<string, number> = {};
   let sessionIdleMinutes = 0;
   try {
@@ -23,7 +24,8 @@ export default async function DashboardLayout({
         .select('display_currency, currency_overrides')
         .eq('id', user.id)
         .maybeSingle();
-      displayCurrency = (profile?.display_currency as string) ?? 'MMK';
+      const raw = (profile?.display_currency as string) ?? 'MMK';
+      displayCurrency = raw as CurrencyCode;
       currencyOverrides = (profile?.currency_overrides as Record<string, number>) ?? {};
     }
     const sessionSettings = await getAppSettings('session');
@@ -34,7 +36,7 @@ export default async function DashboardLayout({
   }
   return (
     <DashboardShell
-      initialCurrency={displayCurrency}
+      initialCurrency={displayCurrency as CurrencyCode}
       initialCurrencyOverrides={currencyOverrides}
       sessionIdleMinutes={sessionIdleMinutes}
     >
