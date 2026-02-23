@@ -116,7 +116,7 @@ function areRowsEquivalent(incoming: Record<string, unknown>, existing: Record<s
   });
 }
 
-export async function importExcelAction(parsed: ParsedSheet[], filename: string) {
+export async function importExcelAction(parsed: ParsedSheet[], filename: string = 'import.xlsx') {
   const perms = await requirePermission('can_import_excel');
   const supabase = await createClient();
   const {
