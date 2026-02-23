@@ -13,6 +13,7 @@ export function ImportExcelClient() {
   const router = useRouter();
   const [drag, setDrag] = useState(false);
   const [parsed, setParsed] = useState<ParsedSheet[] | null>(null);
+  const [filename, setFilename] = useState<string>('');
   const [result, setResult] = useState<{ inserted: number; updated: number; warnings: string[] } | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -21,6 +22,7 @@ export function ImportExcelClient() {
       toast.error('Please upload an Excel file (.xlsx or .xls)');
       return;
     }
+    setFilename(file.name);
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
@@ -60,7 +62,7 @@ export function ImportExcelClient() {
   const onImport = useCallback(async () => {
     if (!parsed?.length) return;
     setLoading(true);
-    const res = await importExcelAction(parsed);
+    const res = await importExcelAction(parsed, filename || 'import.xlsx');
     setLoading(false);
     if (res.error) {
       toast.error(res.error);
@@ -71,7 +73,7 @@ export function ImportExcelClient() {
     setParsed(null);
     if (res.warnings?.length) res.warnings.forEach((w) => toast.warning(w));
     router.refresh();
-  }, [parsed, router]);
+  }, [parsed, filename, router]);
 
   return (
     <div className="space-y-6">

@@ -1,29 +1,124 @@
 'use client';
 
 import { useMemo, useState, useTransition } from 'react';
+import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { ConfirmDialog } from '@/components/ui/dialog/ConfirmDialog';
 import { PermissionsMatrix } from '@/components/admin/users/PermissionsMatrix';
-import type { ManagedUser, UserActivityRow } from '@/components/admin/users/types';
+import type { ManagedUser, UserActivityRow, PendingInvite } from '@/components/admin/users/types';
 import { PERMISSION_PRESETS } from '@/lib/permission-presets';
 import {
   deleteManagedUser,
   forceSignOutManagedUser,
   resendManagedUserInvite,
+  revokePendingInvite,
   sendManagedUserPasswordReset,
   setUserPassword,
   updateManagedUserProfile,
   updateManagedUserRoleAndPermissions,
   updateManagedUserStatus,
 } from '@/app/admin/users/actions';
-
 type Tab = 'profile' | 'permissions' | 'activity' | 'security';
+
+function PendingInviteDetail({
+  invite,
+  pending,
+  startTransition,
+}: {
+  invite: PendingInvite;
+  pending: boolean;
+  startTransition: (fn: () => void) => void;
+}) {
+  const router = useRouter();
+  const [revokeConfirmOpen, setRevokeConfirmOpen] = useState(false);
+  const signupUrl = typeof window !== 'undefined' ? `${window.location.origin}/signup` : '/signup';
+
+  const copySignupLink = () => {
+    const text = `${signupUrl}\n\nYou were invited to Legacy Revenue Portal. Sign up with this email: ${invite.email}`;
+    navigator.clipboard.writeText(text).then(() => toast.success('Signup link copied to clipboard'));
+  };
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-6">
+      <div className="mb-4 flex items-center justify-between">
+        <h2 className="text-body font-semibold text-primary">Pending invite</h2>
+        <span className="rounded-full bg-amber/15 px-2 py-0.5 text-micro text-amber">Awaiting sign-up</span>
+      </div>
+      <dl className="space-y-3 text-body">
+        <div>
+          <dt className="text-caption text-secondary">Full name</dt>
+          <dd className="text-primary">{invite.full_name}</dd>
+        </div>
+        <div>
+          <dt className="text-caption text-secondary">Email</dt>
+          <dd className="text-primary">{invite.email}</dd>
+        </div>
+        <div>
+          <dt className="text-caption text-secondary">Role</dt>
+          <dd className="text-primary capitalize">{invite.role}</dd>
+        </div>
+        {(invite.job_title || invite.department) && (
+          <div>
+            <dt className="text-caption text-secondary">Job title / Department</dt>
+            <dd className="text-primary">{[invite.job_title, invite.department].filter(Boolean).join(' · ')}</dd>
+          </div>
+        )}
+        <div>
+          <dt className="text-caption text-secondary">Invited</dt>
+          <dd className="text-primary">{new Date(invite.invited_at).toLocaleString()}</dd>
+        </div>
+      </dl>
+      <p className="mt-4 text-caption text-secondary">
+        They can create an account at <strong>{signupUrl}</strong> using this email. They will not appear in Team members until they complete sign-up.
+      </p>
+      <div className="mt-6 flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={copySignupLink}
+          disabled={pending}
+          className="rounded-lg border border-border bg-elevated px-4 py-2 text-caption font-medium text-primary hover:bg-card"
+        >
+          Copy signup link
+        </button>
+        <button
+          type="button"
+          onClick={() => setRevokeConfirmOpen(true)}
+          disabled={pending}
+          className="rounded-lg border border-danger/50 bg-danger/10 px-4 py-2 text-caption font-medium text-danger hover:bg-danger/20"
+        >
+          Revoke invite
+        </button>
+      </div>
+      <ConfirmDialog
+        open={revokeConfirmOpen}
+        onClose={() => setRevokeConfirmOpen(false)}
+        title="Revoke invite"
+        message={`Remove this invite for ${invite.email}? They will need to be invited again to sign up.`}
+        confirmText="Revoke"
+        onConfirm={() =>
+          startTransition(async () => {
+            try {
+              await revokePendingInvite({ inviteId: invite.id });
+              toast.success('Invite revoked');
+              setRevokeConfirmOpen(false);
+              router.refresh();
+            } catch (error) {
+              toast.error(error instanceof Error ? error.message : 'Failed to revoke invite');
+            }
+          })
+        }
+      />
+    </div>
+  );
+}
 
 export function UserDetailPanel({
   user,
+  pendingInvite,
   activities,
 }: {
   user: ManagedUser | null;
+  pendingInvite?: PendingInvite | null;
   activities: UserActivityRow[];
 }) {
   const [tab, setTab] = useState<Tab>('profile');
@@ -56,10 +151,20 @@ export function UserDetailPanel({
     setTab('profile');
   }, [user]);
 
+  if (pendingInvite) {
+    return (
+      <PendingInviteDetail
+        invite={pendingInvite}
+        pending={pending}
+        startTransition={startTransition}
+      />
+    );
+  }
+
   if (!user) {
     return (
       <div className="rounded-xl border border-border bg-card p-8 text-center text-secondary">
-        Select a user to view details.
+        Select a user or pending invite to view details.
       </div>
     );
   }

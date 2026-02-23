@@ -156,7 +156,7 @@ export async function inviteManagedUser(payload: {
   message?: string;
 }) {
   await requirePermission('can_manage_users');
-  const { supabase, user } = await getActor();
+  const { user } = await getActor();
   await assertAdminRateLimit(user.id, 'invite');
   const trimmedEmail = payload.email.trim().toLowerCase();
   const adminClient = createAdminClient();
@@ -193,6 +193,15 @@ export async function resendManagedUserInvite(payload: { email: string }) {
   const adminClient = createAdminClient();
   const invite = await adminClient.auth.admin.inviteUserByEmail(payload.email);
   if (invite.error) throw new Error(invite.error.message);
+}
+
+/** Remove a pending invite (they can be re-invited later). */
+export async function revokePendingInvite(payload: { inviteId: string }) {
+  await requirePermission('can_manage_users');
+  const adminClient = createAdminClient();
+  const { error } = await adminClient.from('invited_emails').delete().eq('id', payload.inviteId);
+  if (error) throw new Error(error.message);
+  revalidatePath('/admin/users');
 }
 
 export async function sendManagedUserPasswordReset(payload: { email: string }) {

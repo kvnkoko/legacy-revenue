@@ -2,17 +2,21 @@
 
 import { useMemo, useState } from 'react';
 import { InviteUserDrawer } from '@/components/admin/users/InviteUserDrawer';
-import type { ManagedUser } from '@/components/admin/users/types';
+import type { ManagedUser, PendingInvite } from '@/components/admin/users/types';
 
-type Filter = 'all' | 'admin' | 'staff' | 'active' | 'suspended' | 'pending';
+const PENDING_PREFIX = 'pending:';
+
+type Filter = 'all' | 'admin' | 'staff' | 'active' | 'suspended' | 'pending' | 'pending_invites';
 
 export function UserListPanel({
   users,
+  pendingInvites = [],
   selectedId,
   onSelect,
   defaultPermissions,
 }: {
   users: ManagedUser[];
+  pendingInvites?: PendingInvite[];
   selectedId: string | null;
   onSelect: (id: string) => void;
   defaultPermissions?: Record<string, unknown>;
@@ -28,6 +32,7 @@ export function UserListPanel({
       .filter((u) => {
         if (filter === 'admin' || filter === 'staff') return u.role === filter;
         if (filter === 'active' || filter === 'suspended' || filter === 'pending') return u.status === filter;
+        if (filter === 'pending_invites') return false; // only show pending invites in that filter
         return true;
       })
       .filter((u) => {
@@ -47,6 +52,19 @@ export function UserListPanel({
     });
     return next;
   }, [users, query, filter, sort]);
+
+  const filteredPending = useMemo(() => {
+    if (filter !== 'all' && filter !== 'pending_invites') return [];
+    const q = query.toLowerCase().trim();
+    return pendingInvites.filter((p) => {
+      if (!q) return true;
+      return (
+        p.full_name.toLowerCase().includes(q) ||
+        p.email.toLowerCase().includes(q) ||
+        (p.department ?? '').toLowerCase().includes(q)
+      );
+    });
+  }, [pendingInvites, filter, query]);
 
   return (
     <div className="rounded-xl border border-border bg-card p-3">
@@ -68,7 +86,7 @@ export function UserListPanel({
         className="mb-2 w-full rounded-lg border border-border bg-elevated px-3 py-2 text-body text-primary"
       />
       <div className="mb-2 flex flex-wrap gap-1">
-        {(['all', 'admin', 'staff', 'active', 'suspended', 'pending'] as const).map((f) => (
+        {(['all', 'admin', 'staff', 'active', 'suspended', 'pending', 'pending_invites'] as const).map((f) => (
           <button
             key={f}
             type="button"
@@ -77,7 +95,7 @@ export function UserListPanel({
               filter === f ? 'bg-teal/15 text-teal' : 'bg-elevated text-secondary'
             }`}
           >
-            {f.toUpperCase()}
+            {f === 'pending_invites' ? 'PENDING INVITES' : f.toUpperCase()}
           </button>
         ))}
       </div>
@@ -93,6 +111,39 @@ export function UserListPanel({
       </select>
 
       <div className="space-y-2">
+        {(filter === 'all' || filter === 'pending_invites') && filteredPending.length > 0 && (
+          <>
+            <p className="px-1 pb-1 text-micro font-medium text-muted">
+              {filter === 'pending_invites' ? 'Pending invites' : 'Pending invites'}
+            </p>
+            {filteredPending.map((inv) => {
+              const id = `${PENDING_PREFIX}${inv.id}`;
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => onSelect(id)}
+                  className={`w-full rounded-lg border p-3 text-left transition-colors ${
+                    selectedId === id ? 'border-teal bg-teal/10' : 'border-border bg-elevated hover:border-border-hover'
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-body font-medium text-primary">{inv.full_name}</p>
+                      <p className="text-caption text-secondary">{inv.job_title ?? inv.email}</p>
+                    </div>
+                    <span className="rounded-full px-2 py-0.5 text-micro bg-amber/15 text-amber">Pending invite</span>
+                  </div>
+                  <div className="mt-2 flex items-center justify-between text-micro text-secondary">
+                    <span>{inv.department ?? inv.email}</span>
+                    <span>Invited {new Date(inv.invited_at).toLocaleDateString()}</span>
+                  </div>
+                </button>
+              );
+            })}
+            {filter === 'all' && <p className="px-1 pt-2 pb-1 text-micro font-medium text-muted">Team members</p>}
+          </>
+        )}
         {filtered.map((user) => (
           <button
             key={user.id}

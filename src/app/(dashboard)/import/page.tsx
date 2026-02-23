@@ -35,8 +35,6 @@ const SHEET_TABLE_MAP: Record<string, string> = {
   Tiktok: 'tiktok',
 };
 
-const IMPORT_ORDER = ['MPT', 'Atom', 'Ringtune', 'EAUC', 'Combo', 'SZNB', 'Flow Subscription', 'YouTube', 'Spotify', 'Tiktok', 'Revenue'];
-
 const EXPORT_SHEETS = ['Revenue', 'Ringtune', 'MPT', 'Atom', 'EAUC', 'Combo', 'Local', 'SZNB', 'Flow Subscription', 'International', 'YouTube', 'Spotify', 'Tiktok'];
 
 function normalizeMonth(raw: unknown): string | null {
@@ -83,12 +81,6 @@ function normalizeKey(key: string): string {
   return key.toLowerCase().trim().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
 }
 
-function normalizeImportColumnKey(key: string): string {
-  const normalized = normalizeKey(key);
-  if (normalized === 'kpay_ecomence') return 'kpay_ecommerce';
-  return normalized;
-}
-
 function normalizeRowKeys(row: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   Object.entries(row).forEach(([k, v]) => {
@@ -133,30 +125,6 @@ export default function ImportPage() {
   const [exportYear, setExportYear] = useState(String(new Date().getFullYear()));
   const [exportStart, setExportStart] = useState('');
   const [exportEnd, setExportEnd] = useState('');
-
-  const TABLE_COLUMNS: Record<string, string[]> = {
-    revenue_summary: ['month', 'ringtune', 'eauc', 'combo', 'sznb', 'flow_music_zone', 'flow_subscription', 'flow_data_pack', 'youtube', 'spotify', 'tiktok'],
-    ringtune: ['month', 'mpt', 'atom', 'ooredoo'],
-    mpt: ['month', 'legacy_ringtune', 'legacy_eauc', 'legacy_combo', 'etrade_ringtune', 'etrade_eauc', 'etrade_combo', 'fortune_ringtune', 'fortune_eauc', 'fortune_combo', 'unico_ringtune', 'unico_eauc', 'unico_combo'],
-    atom: ['month', 'ringtune', 'eauc', 'combo'],
-    eauc: ['month', 'mpt', 'atom'],
-    combo: ['month', 'mpt', 'atom'],
-    local: ['month', 'mpt', 'atom', 'ooredoo'],
-    sznb: ['month', 'mpt', 'atom', 'kpay_mini_app', 'kpay_qr', 'kpay_ecommerce', 'wave_money', 'dinger'],
-    flow_subscription: ['month', 'mpt', 'kpay'],
-    international: ['month', 'solution_one', 'fuga', 'believe'],
-    youtube: ['month', 'solution_one', 'fuga', 'believe'],
-    spotify: ['month', 'fuga', 'believe'],
-    tiktok: ['month', 'fuga', 'believe'],
-  };
-
-  const areRowsEquivalent = (incoming: Record<string, unknown>, existing: Record<string, unknown> | undefined): boolean => {
-    if (!existing) return false;
-    return Object.entries(incoming).every(([key, value]) => {
-      if (key === 'month') return String(value) === String(existing[key] ?? '');
-      return Math.abs(toNum(value) - toNum(existing[key])) < 0.0001;
-    });
-  };
 
   function computeRelationshipValidation(sheets: ParsedSheet[]): ValidationItem[] {
     const mptSheet = sheets.find((s) => s.name === 'MPT');

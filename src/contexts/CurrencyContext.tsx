@@ -9,8 +9,6 @@ import {
   useState,
 } from 'react';
 import {
-  CURRENCIES,
-  DEFAULT_RATES,
   fetchRatesFromMMK,
   formatCurrencyValue,
   getEffectiveRate,

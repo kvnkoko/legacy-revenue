@@ -27,3 +27,15 @@ export type UserActivityRow = {
   created_at: string;
   new_value: unknown;
 };
+
+/** Invite row from invited_emails (used_at IS NULL). Shown in User Management as "Pending invite". */
+export type PendingInvite = {
+  id: string;
+  email: string;
+  full_name: string;
+  role: 'admin' | 'staff';
+  job_title: string | null;
+  department: string | null;
+  invited_at: string;
+  invited_by: string | null;
+};

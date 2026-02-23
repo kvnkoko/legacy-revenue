@@ -1,9 +1,10 @@
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
+import { createAdminClient } from '@/lib/supabase/admin';
 import { getServerPermissions } from '@/lib/authz/server';
 import { AccessDenied } from '@/components/authz/AccessDenied';
 import { AdminUsersPageClient } from '@/components/admin/users/AdminUsersPageClient';
-import type { ManagedUser, UserActivityRow } from '@/components/admin/users/types';
+import type { ManagedUser, UserActivityRow, PendingInvite } from '@/components/admin/users/types';
 import { normalizePermissions } from '@/lib/authz/utils';
 import { getAppSettings } from '@/app/(dashboard)/admin/settings/actions';
 
@@ -32,6 +33,28 @@ export default async function AdminUsersPage() {
     permissions: normalizePermissions((u.role as 'admin' | 'staff') ?? 'staff', u.permissions),
   }));
 
+  let pendingInvites: PendingInvite[] = [];
+  try {
+    const admin = createAdminClient();
+    const { data: invitesRaw } = await admin
+      .from('invited_emails')
+      .select('id, email, full_name, role, job_title, department, invited_at, invited_by')
+      .is('used_at', null)
+      .order('invited_at', { ascending: false });
+    pendingInvites = (invitesRaw ?? []).map((row) => ({
+      id: row.id,
+      email: row.email ?? '',
+      full_name: row.full_name ?? '',
+      role: (row.role as 'admin' | 'staff') ?? 'staff',
+      job_title: row.job_title ?? null,
+      department: row.department ?? null,
+      invited_at: row.invited_at ?? new Date().toISOString(),
+      invited_by: row.invited_by ?? null,
+    }));
+  } catch {
+    // If admin client or table missing, show no pending invites
+  }
+
   const { data: activityRaw } = await supabase
     .from('audit_log')
     .select('sqlid, user_id, row_id, user_role, action, table_name, created_at, new_value')
@@ -53,7 +76,7 @@ export default async function AdminUsersPage() {
         <h1 className="text-title font-bold text-primary tracking-tight">User Management</h1>
         <p className="text-body text-secondary mt-0.5">Manage team roles, permissions, and security controls</p>
       </div>
-      <AdminUsersPageClient users={users} activity={activity} defaultPermissions={defaultPermissions} />
+      <AdminUsersPageClient users={users} pendingInvites={pendingInvites} activity={activity} defaultPermissions={defaultPermissions} />
     </div>
   );
 }
