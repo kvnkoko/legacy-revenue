@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import type { UserProfile } from '@/lib/authz/types';
+import type { Role, UserProfile } from '@/lib/authz/types';
 import { profileToUserPermissions } from '@/lib/authz/utils';
 import { ADMIN_PERMISSIONS, STAFF_DEFAULT_PERMISSIONS } from '@/lib/permission-presets';
 
@@ -18,7 +18,7 @@ function defaultProfile(userId: string, email: string | undefined): UserProfile 
     email: email ?? '',
     full_name: email ?? '',
     display_name: null,
-    role: 'staff',
+    role: 'viewer',
     permissions: STAFF_DEFAULT_PERMISSIONS,
     job_title: null,
     department: null,
@@ -69,7 +69,7 @@ export function AuthzProvider({ children }: { children: React.ReactNode }) {
       ...(data as Partial<UserProfile>),
       id: (data.id as string | undefined) ?? (data.user_id as string | undefined) ?? user.id,
       email: (data.email as string | undefined) ?? user.email ?? '',
-      role: (data.role as 'admin' | 'staff' | undefined) ?? ((user.user_metadata?.role as 'admin' | 'staff' | undefined) ?? 'staff'),
+      role: (data.role as Role | undefined) ?? 'viewer',
     };
     if (normalized.role === 'admin') {
       normalized.permissions = ADMIN_PERMISSIONS;

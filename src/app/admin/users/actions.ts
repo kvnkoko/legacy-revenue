@@ -5,8 +5,9 @@ import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { requirePermission } from '@/lib/authz/server';
 import { assertAdminRateLimit } from '@/lib/authz/rate-limit';
-import { ADMIN_PERMISSIONS, STAFF_DEFAULT_PERMISSIONS } from '@/lib/permission-presets';
-import type { PermissionMap } from '@/lib/authz/types';
+import { ADMIN_PERMISSIONS } from '@/lib/permission-presets';
+import { normalizePermissions } from '@/lib/authz/utils';
+import type { PermissionMap, Role } from '@/lib/authz/types';
 
 type UserProfileUpdatePayload = {
   userId: string;
@@ -83,7 +84,7 @@ export async function updateManagedUserProfile(payload: UserProfileUpdatePayload
 
 export async function updateManagedUserRoleAndPermissions(payload: {
   userId: string;
-  role: 'admin' | 'staff';
+  role: Exclude<Role, 'staff'>;
   permissions: PermissionMap;
 }) {
   await requirePermission('can_manage_users');
@@ -95,7 +96,9 @@ export async function updateManagedUserRoleAndPermissions(payload: {
     .eq('id', payload.userId)
     .maybeSingle();
 
-  const nextPermissions = payload.role === 'admin' ? ADMIN_PERMISSIONS : payload.permissions;
+  // Role defaults merged with per-user overrides; the DB guard trigger
+  // re-derives the effective map as the final authority.
+  const nextPermissions = payload.role === 'admin' ? ADMIN_PERMISSIONS : normalizePermissions(payload.role, payload.permissions);
   const { error } = await supabase
     .from('user_profiles')
     .update({
@@ -151,7 +154,7 @@ export async function inviteManagedUser(payload: {
   email: string;
   jobTitle?: string;
   department?: string;
-  role: 'admin' | 'staff';
+  role: Exclude<Role, 'staff'>;
   permissions?: PermissionMap;
   message?: string;
 }) {
@@ -167,7 +170,7 @@ export async function inviteManagedUser(payload: {
       email: trimmedEmail,
       full_name: payload.fullName,
       role: payload.role,
-      permissions: payload.role === 'admin' ? ADMIN_PERMISSIONS : payload.permissions ?? STAFF_DEFAULT_PERMISSIONS,
+      permissions: normalizePermissions(payload.role, payload.permissions),
       job_title: payload.jobTitle ?? null,
       department: payload.department ?? null,
       invited_by: user.id,

@@ -30,7 +30,7 @@ export async function updateSession(request: NextRequest) {
   );
   const { data: { user } } = await supabase.auth.getUser();
   type MiddlewareProfile = {
-    role: 'admin' | 'staff';
+    role: string;
     status: 'active' | 'suspended' | 'pending';
     permissions: Record<string, boolean> | null;
   };

@@ -6,7 +6,8 @@ import { toast } from 'sonner';
 import { ConfirmDialog } from '@/components/ui/dialog/ConfirmDialog';
 import { PermissionsMatrix } from '@/components/admin/users/PermissionsMatrix';
 import type { ManagedUser, UserActivityRow, PendingInvite } from '@/components/admin/users/types';
-import { PERMISSION_PRESETS } from '@/lib/permission-presets';
+import { ROLE_DEFAULT_PERMISSIONS, ROLE_DESCRIPTIONS } from '@/lib/permission-presets';
+import { ROLE_LABELS, type Role } from '@/lib/authz/types';
 import {
   deleteManagedUser,
   forceSignOutManagedUser,
@@ -133,8 +134,8 @@ export function UserDetailPanel({
     department: user?.department ?? '',
     notes: user?.notes ?? '',
   });
-  const [permissions, setPermissions] = useState(user?.permissions ?? PERMISSION_PRESETS.READ_ONLY.permissions);
-  const [role, setRole] = useState<'admin' | 'staff'>(user?.role ?? 'staff');
+  const [permissions, setPermissions] = useState(user?.permissions ?? ROLE_DEFAULT_PERMISSIONS.viewer);
+  const [role, setRole] = useState<Role>(user?.role ?? 'viewer');
   const [status, setStatus] = useState<'active' | 'suspended' | 'pending'>(user?.status ?? 'active');
 
   useMemo(() => {
@@ -145,8 +146,8 @@ export function UserDetailPanel({
       department: user?.department ?? '',
       notes: user?.notes ?? '',
     });
-    setPermissions(user?.permissions ?? PERMISSION_PRESETS.READ_ONLY.permissions);
-    setRole(user?.role ?? 'staff');
+    setPermissions(user?.permissions ?? ROLE_DEFAULT_PERMISSIONS.viewer);
+    setRole(user?.role ?? 'viewer');
     setStatus(user?.status ?? 'active');
     setTab('profile');
   }, [user]);
@@ -184,7 +185,7 @@ export function UserDetailPanel({
       try {
         await updateManagedUserRoleAndPermissions({
           userId: user.id,
-          role,
+          role: (role === 'staff' ? 'viewer' : role) as Exclude<Role, 'staff'>,
           permissions,
         });
         toast.success('Permissions updated');
@@ -203,8 +204,9 @@ export function UserDetailPanel({
       }
     });
 
-  const applyPreset = (presetKey: keyof typeof PERMISSION_PRESETS) => {
-    setPermissions(PERMISSION_PRESETS[presetKey].permissions);
+  const pickRole = (next: Role) => {
+    setRole(next);
+    setPermissions(ROLE_DEFAULT_PERMISSIONS[next] ?? ROLE_DEFAULT_PERMISSIONS.viewer);
   };
 
   return (
@@ -219,9 +221,17 @@ export function UserDetailPanel({
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <select value={role} onChange={(e) => setRole(e.target.value as 'admin' | 'staff')} className="rounded-lg border border-border bg-elevated px-3 py-2 text-caption text-primary">
-            <option value="staff">Staff</option>
+          <select
+            value={role}
+            onChange={(e) => pickRole(e.target.value as Role)}
+            title={role !== 'staff' ? ROLE_DESCRIPTIONS[role as Exclude<Role, 'staff'>] : undefined}
+            className="rounded-lg border border-border bg-elevated px-3 py-2 text-caption text-primary"
+          >
+            <option value="viewer">Viewer</option>
+            <option value="data">Data</option>
+            <option value="editor">Editor</option>
             <option value="admin">Admin</option>
+            {role === 'staff' && <option value="staff">Staff (legacy)</option>}
           </select>
           <select value={status} onChange={(e) => setStatus(e.target.value as 'active' | 'suspended' | 'pending')} className="rounded-lg border border-border bg-elevated px-3 py-2 text-caption text-primary">
             <option value="active">Active</option>
@@ -284,21 +294,10 @@ export function UserDetailPanel({
       {tab === 'permissions' && (
         <div className="space-y-3">
           <div className="flex flex-wrap gap-2">
-            <select
-              onChange={(e) => applyPreset(e.target.value as keyof typeof PERMISSION_PRESETS)}
-              className="rounded-lg border border-border bg-elevated px-3 py-2 text-caption text-primary"
-              defaultValue=""
-            >
-              <option value="" disabled>
-                Apply Preset
-              </option>
-              {Object.entries(PERMISSION_PRESETS).map(([k, p]) => (
-                <option key={k} value={k}>
-                  {p.label}
-                </option>
-              ))}
-            </select>
-            <button type="button" onClick={() => setPermissions(PERMISSION_PRESETS.READ_ONLY.permissions)} className="rounded-lg border border-border px-3 py-2 text-caption text-primary">
+            <p className="text-caption text-secondary">
+              Base access comes from the <span className="font-medium text-primary">{ROLE_LABELS[role]}</span> role; checkboxes below are per-user overrides.
+            </p>
+            <button type="button" onClick={() => setPermissions(ROLE_DEFAULT_PERMISSIONS[role] ?? ROLE_DEFAULT_PERMISSIONS.viewer)} className="rounded-lg border border-border px-3 py-2 text-caption text-primary">
               Reset to Role Default
             </button>
           </div>

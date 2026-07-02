@@ -15,6 +15,7 @@ const MAP: Record<PermissionKey, keyof ReturnType<typeof usePermissions>['can']>
   can_view_audit_log: 'viewAuditLog',
   can_manage_users: 'manageUsers',
   can_manage_settings: 'manageSettings',
+  can_configure_streams: 'configureStreams',
   can_view_mpt_detail: 'viewMptDetail',
   can_view_sznb: 'viewSznb',
   can_view_international: 'viewInternational',

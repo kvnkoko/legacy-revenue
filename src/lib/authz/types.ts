@@ -1,4 +1,7 @@
-export type Role = 'admin' | 'staff';
+// 'staff' is a transitional alias accepted until migration 018 has run in
+// production (it is treated as viewer defaults); new code should only assign
+// admin / editor / data / viewer.
+export type Role = 'admin' | 'editor' | 'data' | 'viewer' | 'staff';
 
 export type PermissionKey =
   | 'can_enter_data'
@@ -11,6 +14,7 @@ export type PermissionKey =
   | 'can_view_audit_log'
   | 'can_manage_users'
   | 'can_manage_settings'
+  | 'can_configure_streams'
   | 'can_view_mpt_detail'
   | 'can_view_sznb'
   | 'can_view_international'
@@ -52,6 +56,7 @@ export type UserPermissions = {
     viewAuditLog: boolean;
     manageUsers: boolean;
     manageSettings: boolean;
+    configureStreams: boolean;
     viewMptDetail: boolean;
     viewSznb: boolean;
     viewInternational: boolean;
@@ -62,4 +67,12 @@ export type UserPermissions = {
   isStaff: boolean;
   profile: UserProfile | null;
   loading: boolean;
+};
+
+export const ROLE_LABELS: Record<Role, string> = {
+  admin: 'Admin',
+  editor: 'Editor',
+  data: 'Data',
+  viewer: 'Viewer',
+  staff: 'Staff',
 };

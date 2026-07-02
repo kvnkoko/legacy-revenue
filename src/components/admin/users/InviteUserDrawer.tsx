@@ -4,55 +4,45 @@ import { useState, useTransition } from 'react';
 import { toast } from 'sonner';
 import { Drawer } from '@/components/ui/dialog/Dialog';
 import { PermissionsMatrix } from '@/components/admin/users/PermissionsMatrix';
-import { PERMISSION_PRESETS, type PermissionPresetKey } from '@/lib/permission-presets';
-import type { PermissionMap } from '@/lib/authz/types';
+import { ROLE_DEFAULT_PERMISSIONS, ROLE_DESCRIPTIONS } from '@/lib/permission-presets';
+import { ROLE_LABELS, type PermissionMap, type Role } from '@/lib/authz/types';
 import { inviteManagedUser } from '@/app/admin/users/actions';
 
-function normalizePermissions(raw: unknown): PermissionMap {
-  if (!raw || typeof raw !== 'object') return PERMISSION_PRESETS.READ_ONLY.permissions;
-  const map = (raw as Record<string, unknown>).default_permissions ?? raw;
-  if (!map || typeof map !== 'object') return PERMISSION_PRESETS.READ_ONLY.permissions;
-  const m = map as Record<string, boolean>;
-  const keys: (keyof PermissionMap)[] = [
-    'can_enter_data', 'can_edit_data', 'can_delete_data', 'can_import_excel', 'can_export_data',
-    'can_view_analytics', 'can_view_streams', 'can_view_audit_log', 'can_manage_users', 'can_manage_settings',
-    'can_view_mpt_detail', 'can_view_sznb', 'can_view_international', 'can_view_telecom', 'can_view_flow',
-  ];
-  const result = { ...PERMISSION_PRESETS.READ_ONLY.permissions };
-  keys.forEach((k) => {
-    if (k in m && typeof m[k] === 'boolean') result[k] = m[k];
-  });
-  return result;
-}
+type AssignableRole = Exclude<Role, 'staff'>;
+const ROLES: AssignableRole[] = ['viewer', 'data', 'editor', 'admin'];
 
 export function InviteUserDrawer({
   open,
   onClose,
-  defaultPermissions: defaultPermissionsRaw,
 }: {
   open: boolean;
   onClose: () => void;
   defaultPermissions?: Record<string, unknown>;
 }) {
-  const defaultPerms = defaultPermissionsRaw ? normalizePermissions(defaultPermissionsRaw) : PERMISSION_PRESETS.READ_ONLY.permissions;
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [jobTitle, setJobTitle] = useState('');
   const [department, setDepartment] = useState('');
-  const [role, setRole] = useState<'admin' | 'staff'>('staff');
-  const [preset, setPreset] = useState<PermissionPresetKey | 'CUSTOM' | 'DEFAULT'>('DEFAULT');
+  const [role, setRole] = useState<AssignableRole>('viewer');
+  const [customize, setCustomize] = useState(false);
   const [message, setMessage] = useState('');
-  const [customPermissions, setCustomPermissions] = useState<PermissionMap>(defaultPerms);
+  const [customPermissions, setCustomPermissions] = useState<PermissionMap>({
+    ...ROLE_DEFAULT_PERMISSIONS.viewer,
+  });
   const [pending, startTransition] = useTransition();
+
+  const pickRole = (next: AssignableRole) => {
+    setRole(next);
+    setCustomPermissions({ ...ROLE_DEFAULT_PERMISSIONS[next] });
+    if (next === 'admin') setCustomize(false);
+  };
 
   const effectivePermissions =
     role === 'admin'
-      ? PERMISSION_PRESETS.FULL_ACCESS_STAFF.permissions
-      : preset === 'CUSTOM'
+      ? ROLE_DEFAULT_PERMISSIONS.admin
+      : customize
         ? customPermissions
-        : preset === 'DEFAULT'
-          ? defaultPerms
-          : PERMISSION_PRESETS[preset].permissions;
+        : ROLE_DEFAULT_PERMISSIONS[role];
 
   const submit = () => {
     if (!fullName.trim() || !email.trim()) {
@@ -101,39 +91,30 @@ export function InviteUserDrawer({
         </div>
         <div className="rounded-lg border border-border bg-elevated p-3">
           <p className="text-caption text-secondary">Role</p>
-          <div className="mt-2 flex gap-4">
-            <label className="text-body text-primary">
-              <input type="radio" checked={role === 'staff'} onChange={() => setRole('staff')} className="mr-2" />
-              Staff
-            </label>
-            <label className="text-body text-primary">
-              <input type="radio" checked={role === 'admin'} onChange={() => setRole('admin')} className="mr-2" />
-              Admin
-            </label>
+          <div className="mt-2 space-y-2">
+            {ROLES.map((r) => (
+              <label
+                key={r}
+                className={`flex cursor-pointer items-start gap-3 rounded-lg border p-2.5 transition-colors ${
+                  role === r ? 'border-teal/50 bg-teal/5' : 'border-border hover:bg-card'
+                }`}
+              >
+                <input type="radio" checked={role === r} onChange={() => pickRole(r)} className="mt-1" />
+                <span>
+                  <span className="block text-body font-medium text-primary">{ROLE_LABELS[r]}</span>
+                  <span className="block text-caption text-secondary">{ROLE_DESCRIPTIONS[r]}</span>
+                </span>
+              </label>
+            ))}
           </div>
         </div>
-        {role === 'staff' && (
-          <label className="block text-caption text-secondary">
-            Permission Preset
-            <select
-              value={preset}
-              onChange={(e) => setPreset(e.target.value as PermissionPresetKey | 'CUSTOM' | 'DEFAULT')}
-              className="mt-1 w-full rounded-lg border border-border bg-card px-3 py-2 text-primary"
-            >
-              <option value="DEFAULT">Default (from Admin Settings)</option>
-              {Object.entries(PERMISSION_PRESETS).map(([k, v]) => (
-                <option key={k} value={k}>{v.label}</option>
-              ))}
-              <option value="CUSTOM">Custom</option>
-            </select>
+        {role !== 'admin' && (
+          <label className="flex items-center gap-2 text-caption text-secondary">
+            <input type="checkbox" checked={customize} onChange={(e) => setCustomize(e.target.checked)} className="h-4 w-4" />
+            Customize permissions beyond the {ROLE_LABELS[role]} defaults
           </label>
         )}
-        {role === 'staff' && preset === 'DEFAULT' && (
-          <div className="rounded-lg border border-border bg-elevated p-3">
-            <p className="text-caption text-secondary">Using default permissions from Admin Settings. Change preset to customize.</p>
-          </div>
-        )}
-        {role === 'staff' && preset === 'CUSTOM' && (
+        {role !== 'admin' && customize && (
           <PermissionsMatrix value={customPermissions} onChange={setCustomPermissions} />
         )}
         <label className="block text-caption text-secondary">
@@ -143,7 +124,7 @@ export function InviteUserDrawer({
         <div className="rounded-lg border border-border bg-elevated p-3">
           <p className="text-caption text-secondary">Invite email preview</p>
           <p className="mt-1 text-body text-primary">
-            Hello {fullName || 'teammate'}, you were invited to Legacy Revenue Portal as {role}.
+            Hello {fullName || 'teammate'}, you were invited to Legacy Revenue Portal as {ROLE_LABELS[role]}.
           </p>
           {message && <p className="mt-1 text-caption text-secondary">Note: {message}</p>}
         </div>

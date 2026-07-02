@@ -6,7 +6,7 @@ import type { ManagedUser, PendingInvite } from '@/components/admin/users/types'
 
 const PENDING_PREFIX = 'pending:';
 
-type Filter = 'all' | 'admin' | 'staff' | 'active' | 'suspended' | 'pending' | 'pending_invites';
+type Filter = 'all' | 'admin' | 'editor' | 'data' | 'viewer' | 'active' | 'suspended' | 'pending' | 'pending_invites';
 
 export function UserListPanel({
   users,
@@ -30,7 +30,7 @@ export function UserListPanel({
     const q = query.toLowerCase().trim();
     const next = users
       .filter((u) => {
-        if (filter === 'admin' || filter === 'staff') return u.role === filter;
+        if (filter === 'admin' || filter === 'editor' || filter === 'data' || filter === 'viewer') return u.role === filter;
         if (filter === 'active' || filter === 'suspended' || filter === 'pending') return u.status === filter;
         if (filter === 'pending_invites') return false; // only show pending invites in that filter
         return true;
@@ -86,7 +86,7 @@ export function UserListPanel({
         className="mb-2 w-full rounded-lg border border-border bg-elevated px-3 py-2 text-body text-primary"
       />
       <div className="mb-2 flex flex-wrap gap-1">
-        {(['all', 'admin', 'staff', 'active', 'suspended', 'pending', 'pending_invites'] as const).map((f) => (
+        {(['all', 'admin', 'editor', 'data', 'viewer', 'active', 'suspended', 'pending', 'pending_invites'] as const).map((f) => (
           <button
             key={f}
             type="button"

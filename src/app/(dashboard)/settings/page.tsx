@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
 import { SettingsForm } from '@/components/settings/SettingsForm';
 import { getServerPermissions } from '@/lib/authz/server';
+import type { Role } from '@/lib/authz/types';
 
 export const dynamic = 'force-dynamic';
 
@@ -32,7 +33,7 @@ export default async function SettingsPage() {
         initialUsername={initialUsername}
         initialCurrency={initialCurrency}
         initialCurrencyOverrides={initialCurrencyOverrides}
-        role={(profile?.role as 'admin' | 'staff' | undefined) ?? (perms.role as 'admin' | 'staff')}
+        role={(profile?.role as Role | undefined) ?? perms.role}
       />
     </div>
   );

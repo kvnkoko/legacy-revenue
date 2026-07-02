@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { createClient } from '@/lib/supabase/client';
 import { usePermissions } from '@/hooks/usePermissions';
+import { ROLE_LABELS } from '@/lib/authz/types';
 import {
   ChartBarIcon,
   CurrencyCircleDollarIcon,
@@ -174,7 +175,7 @@ export function Sidebar({
             </div>
             <div className="min-w-0">
               <p className="truncate text-caption font-medium text-primary">{perms.profile?.full_name ?? perms.profile?.email ?? 'User'}</p>
-              <p className="text-micro text-secondary">{perms.role === 'admin' ? 'Admin' : 'Staff'}</p>
+              <p className="text-micro text-secondary">{ROLE_LABELS[perms.role]}</p>
             </div>
           </div>
           <button

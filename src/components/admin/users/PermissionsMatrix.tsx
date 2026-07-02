@@ -29,6 +29,7 @@ const GROUPS: Array<{ title: string; items: Array<{ key: keyof PermissionMap; la
     title: 'Administration',
     items: [
       { key: 'can_view_audit_log', label: 'View Audit Log' },
+      { key: 'can_configure_streams', label: 'Configure Revenue Streams & Fields' },
       { key: 'can_manage_users', label: 'Manage Users' },
       { key: 'can_manage_settings', label: 'System Settings' },
     ],
@@ -57,7 +58,7 @@ export function PermissionsMatrix({
                   type="checkbox"
                   checked={Boolean(value[item.key])}
                   disabled={disabled}
-                  title={disabled ? 'Admins always have full access. Demote to Staff to restrict permissions.' : ''}
+                  title={disabled ? 'Admins always have full access. Change the role to restrict permissions.' : ''}
                   onChange={(e) => onChange({ ...value, [item.key]: e.target.checked })}
                   className="h-4 w-4 rounded border-border text-teal focus:ring-teal"
                 />

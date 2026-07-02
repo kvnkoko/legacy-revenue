@@ -1,5 +1,6 @@
 'use client';
 
+import type { Role } from '@/lib/authz/types';
 import { useState, useTransition } from 'react';
 import type { User } from '@supabase/supabase-js';
 import { toast } from 'sonner';
@@ -21,7 +22,7 @@ export function SettingsForm({
   initialUsername: string;
   initialCurrency?: string;
   initialCurrencyOverrides?: Record<string, number>;
-  role: 'admin' | 'staff';
+  role: Role;
 }) {
   const [currency, setCurrency] = useState<CurrencyCode>((initialCurrency as CurrencyCode) ?? 'MMK');
   const [currencyOverrides, setCurrencyOverrides] = useState<Record<string, string>>(() => {

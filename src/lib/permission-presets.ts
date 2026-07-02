@@ -1,6 +1,9 @@
-import type { PermissionMap } from '@/lib/authz/types';
+import type { PermissionMap, Role } from '@/lib/authz/types';
 
-export const STAFF_DEFAULT_PERMISSIONS: PermissionMap = {
+// Role default permission maps — must mirror rbac_role_default_permissions()
+// in supabase/migrations/018_roles.sql (the DB is the authority via RLS).
+
+export const VIEWER_PERMISSIONS: PermissionMap = {
   can_enter_data: false,
   can_edit_data: false,
   can_delete_data: false,
@@ -11,72 +14,50 @@ export const STAFF_DEFAULT_PERMISSIONS: PermissionMap = {
   can_view_audit_log: false,
   can_manage_users: false,
   can_manage_settings: false,
+  can_configure_streams: false,
   can_view_mpt_detail: true,
   can_view_sznb: true,
   can_view_international: true,
   can_view_telecom: true,
   can_view_flow: true,
+};
+
+export const DATA_PERMISSIONS: PermissionMap = {
+  ...VIEWER_PERMISSIONS,
+  can_enter_data: true,
+  can_import_excel: true,
+};
+
+export const EDITOR_PERMISSIONS: PermissionMap = {
+  ...DATA_PERMISSIONS,
+  can_edit_data: true,
+  can_delete_data: true,
+  can_view_audit_log: true,
+  can_configure_streams: true,
 };
 
 export const ADMIN_PERMISSIONS: PermissionMap = {
-  can_enter_data: true,
-  can_edit_data: true,
-  can_delete_data: true,
-  can_import_excel: true,
-  can_export_data: true,
-  can_view_analytics: true,
-  can_view_streams: true,
-  can_view_audit_log: true,
+  ...EDITOR_PERMISSIONS,
   can_manage_users: true,
   can_manage_settings: true,
-  can_view_mpt_detail: true,
-  can_view_sznb: true,
-  can_view_international: true,
-  can_view_telecom: true,
-  can_view_flow: true,
 };
 
-export const PERMISSION_PRESETS = {
-  READ_ONLY: {
-    label: 'Read Only',
-    description: 'Can view all financial data and analytics. Cannot enter, edit, or manage anything.',
-    permissions: {
-      ...STAFF_DEFAULT_PERMISSIONS,
-    },
-  },
-  DATA_ENTRY_STAFF: {
-    label: 'Data Entry Staff',
-    description: 'Can view all data and enter new monthly figures. Cannot edit past data or manage users.',
-    permissions: {
-      ...STAFF_DEFAULT_PERMISSIONS,
-      can_enter_data: true,
-      can_import_excel: true,
-    },
-  },
-  SENIOR_STAFF: {
-    label: 'Senior Staff',
-    description: 'Can enter and edit data, export, and view audit log. Cannot manage users.',
-    permissions: {
-      ...STAFF_DEFAULT_PERMISSIONS,
-      can_enter_data: true,
-      can_edit_data: true,
-      can_import_excel: true,
-      can_view_audit_log: true,
-    },
-  },
-  FULL_ACCESS_STAFF: {
-    label: 'Full Access Staff',
-    description: 'Full data access including delete and settings. Cannot manage other users.',
-    permissions: {
-      ...STAFF_DEFAULT_PERMISSIONS,
-      can_enter_data: true,
-      can_edit_data: true,
-      can_delete_data: true,
-      can_import_excel: true,
-      can_view_audit_log: true,
-      can_manage_settings: true,
-    },
-  },
-} as const;
+/** Transitional: pre-018 'staff' rows behave as viewers. */
+export const STAFF_DEFAULT_PERMISSIONS: PermissionMap = VIEWER_PERMISSIONS;
 
-export type PermissionPresetKey = keyof typeof PERMISSION_PRESETS;
+export const ROLE_DEFAULT_PERMISSIONS: Record<Role, PermissionMap> = {
+  admin: ADMIN_PERMISSIONS,
+  editor: EDITOR_PERMISSIONS,
+  data: DATA_PERMISSIONS,
+  viewer: VIEWER_PERMISSIONS,
+  staff: VIEWER_PERMISSIONS,
+};
+
+export const ROLE_DESCRIPTIONS: Record<Exclude<Role, 'staff'>, string> = {
+  admin: 'Everything, including user management and organization settings.',
+  editor: 'Configures revenue streams and fields; enters, edits, deletes and imports data; sees the audit log.',
+  data: 'Enters new monthly figures and imports Excel. Cannot edit past months or change stream configuration.',
+  viewer: 'Read-only access to dashboards, streams and analytics, with export.',
+};
+
+export type PermissionPresetKey = Exclude<Role, 'staff'>;

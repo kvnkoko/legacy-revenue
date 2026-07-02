@@ -1,23 +1,24 @@
-import { ADMIN_PERMISSIONS, STAFF_DEFAULT_PERMISSIONS } from '@/lib/permission-presets';
+import { ADMIN_PERMISSIONS, ROLE_DEFAULT_PERMISSIONS } from '@/lib/permission-presets';
 import type { PermissionMap, Role, UserPermissions, UserProfile } from '@/lib/authz/types';
 
 export function normalizePermissions(role: Role, value: unknown): PermissionMap {
-  const base = role === 'admin' ? ADMIN_PERMISSIONS : STAFF_DEFAULT_PERMISSIONS;
+  if (role === 'admin') return { ...ADMIN_PERMISSIONS };
+  const base = ROLE_DEFAULT_PERMISSIONS[role] ?? ROLE_DEFAULT_PERMISSIONS.viewer;
   const obj = typeof value === 'object' && value ? (value as Partial<PermissionMap>) : {};
   const merged: PermissionMap = { ...base };
   for (const key of Object.keys(merged) as Array<keyof PermissionMap>) {
     if (typeof obj[key] === 'boolean') merged[key] = obj[key] as boolean;
   }
-  return role === 'admin' ? { ...ADMIN_PERMISSIONS } : merged;
+  return merged;
 }
 
 export function profileToUserPermissions(profile: UserProfile | null, loading = false): UserPermissions {
-  const role: Role = profile?.role ?? 'staff';
+  const role: Role = profile?.role ?? 'viewer';
   const p = normalizePermissions(role, profile?.permissions);
   return {
     role,
     isAdmin: role === 'admin',
-    isStaff: role === 'staff',
+    isStaff: role !== 'admin',
     profile,
     loading,
     can: {
@@ -31,6 +32,7 @@ export function profileToUserPermissions(profile: UserProfile | null, loading = 
       viewAuditLog: p.can_view_audit_log,
       manageUsers: p.can_manage_users,
       manageSettings: p.can_manage_settings,
+      configureStreams: p.can_configure_streams,
       viewMptDetail: p.can_view_mpt_detail,
       viewSznb: p.can_view_sznb,
       viewInternational: p.can_view_international,

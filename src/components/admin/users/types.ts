@@ -1,11 +1,11 @@
-import type { PermissionMap } from '@/lib/authz/types';
+import type { PermissionMap, Role } from '@/lib/authz/types';
 
 export type ManagedUser = {
   id: string;
   full_name: string;
   display_name: string | null;
   email: string;
-  role: 'admin' | 'staff';
+  role: Role;
   status: 'active' | 'suspended' | 'pending';
   permissions: PermissionMap;
   job_title: string | null;
@@ -33,7 +33,7 @@ export type PendingInvite = {
   id: string;
   email: string;
   full_name: string;
-  role: 'admin' | 'staff';
+  role: Role;
   job_title: string | null;
   department: string | null;
   invited_at: string;

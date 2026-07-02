@@ -56,7 +56,7 @@ export function AuditTable({
   initialUserFilter?: string;
 }) {
   const [actionFilter, setActionFilter] = useState<string>('');
-  const [roleFilter, setRoleFilter] = useState<'all' | 'admin' | 'staff'>('all');
+  const [roleFilter, setRoleFilter] = useState<'all' | 'admin' | 'editor' | 'data' | 'viewer' | 'staff'>('all');
   const [userFilter, setUserFilter] = useState<string>(initialUserFilter);
 
   const filtered = logs.filter((l) => {
@@ -122,7 +122,7 @@ export function AuditTable({
         </select>
         <select
           value={roleFilter}
-          onChange={(e) => setRoleFilter(e.target.value as 'all' | 'admin' | 'staff')}
+          onChange={(e) => setRoleFilter(e.target.value as 'all' | 'admin' | 'editor' | 'data' | 'viewer' | 'staff')}
           className="rounded-lg border border-border bg-elevated px-3 py-1.5 text-primary text-sm"
         >
           <option value="all">All roles</option>

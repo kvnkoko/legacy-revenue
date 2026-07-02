@@ -50,7 +50,8 @@ export async function signUpIfInvited(payload: {
   }
 
   // 3. Create auth user
-  const role = (invite.role as 'admin' | 'staff') ?? 'staff';
+  const rawRole = (invite.role as string) ?? 'viewer';
+  const role = rawRole === 'staff' ? 'viewer' : rawRole;
   const permissions = (invite.permissions as PermissionMap | null) ?? (role === 'admin' ? ADMIN_PERMISSIONS : {});
 
   const { data: newUser, error: createErr } = await admin.auth.admin.createUser({

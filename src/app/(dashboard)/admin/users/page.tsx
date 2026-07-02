@@ -6,6 +6,7 @@ import { AccessDenied } from '@/components/authz/AccessDenied';
 import { AdminUsersPageClient } from '@/components/admin/users/AdminUsersPageClient';
 import type { ManagedUser, UserActivityRow, PendingInvite } from '@/components/admin/users/types';
 import { normalizePermissions } from '@/lib/authz/utils';
+import type { Role } from '@/lib/authz/types';
 import { getAppSettings } from '@/app/(dashboard)/admin/settings/actions';
 
 export const dynamic = 'force-dynamic';
@@ -30,7 +31,7 @@ export default async function AdminUsersPage() {
     .order('created_at', { ascending: false });
   const users: ManagedUser[] = (usersRaw ?? []).map((u) => ({
     ...(u as ManagedUser),
-    permissions: normalizePermissions((u.role as 'admin' | 'staff') ?? 'staff', u.permissions),
+    permissions: normalizePermissions((u.role as Role) ?? 'viewer', u.permissions),
   }));
 
   let pendingInvites: PendingInvite[] = [];
@@ -45,7 +46,7 @@ export default async function AdminUsersPage() {
       id: row.id,
       email: row.email ?? '',
       full_name: row.full_name ?? '',
-      role: (row.role as 'admin' | 'staff') ?? 'staff',
+      role: (row.role as Role) ?? 'viewer',
       job_title: row.job_title ?? null,
       department: row.department ?? null,
       invited_at: row.invited_at ?? new Date().toISOString(),
