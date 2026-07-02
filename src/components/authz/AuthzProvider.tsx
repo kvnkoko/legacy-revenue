@@ -58,12 +58,9 @@ export function AuthzProvider({ children }: { children: React.ReactNode }) {
     }
 
     if (!data) {
-      const fallback = defaultProfile(user.id, user.email);
-      if (user.user_metadata?.role === 'admin' || user.email === 'admin@legacy.com') {
-        fallback.role = 'admin';
-        fallback.permissions = ADMIN_PERMISSIONS;
-      }
-      setProfile(fallback);
+      // No synthetic admin elevation: a missing profile row only ever yields
+      // read-only staff defaults in the UI; RLS remains the authority.
+      setProfile(defaultProfile(user.id, user.email));
       setLoading(false);
       return;
     }

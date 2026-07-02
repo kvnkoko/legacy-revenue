@@ -1,7 +1,6 @@
 import { createClient } from '@/lib/supabase/server';
 import type { PermissionKey, UserProfile } from '@/lib/authz/types';
 import { profileToUserPermissions } from '@/lib/authz/utils';
-import { ADMIN_PERMISSIONS } from '@/lib/permission-presets';
 
 export async function getServerProfile(): Promise<UserProfile | null> {
   const supabase = await createClient();
@@ -17,30 +16,9 @@ export async function getServerProfile(): Promise<UserProfile | null> {
     const byLegacy = await supabase.from('user_profiles').select('*').eq('user_id', user.id).maybeSingle();
     data = (byLegacy.data as Record<string, unknown> | null) ?? null;
   }
-  if (!data) {
-    if (user.user_metadata?.role === 'admin' || user.email === 'admin@legacy.com') {
-      return {
-        id: user.id,
-        email: user.email ?? '',
-        full_name: (user.user_metadata?.full_name as string | undefined) ?? (user.email ?? ''),
-        display_name: (user.user_metadata?.username as string | undefined) ?? null,
-        role: 'admin',
-        permissions: ADMIN_PERMISSIONS,
-        job_title: null,
-        department: null,
-        avatar_url: null,
-        status: 'active',
-        last_seen_at: null,
-        invited_by: null,
-        invited_at: null,
-        onboarded_at: null,
-        notes: null,
-        created_at: null,
-        updated_at: null,
-      };
-    }
-    return null;
-  }
+  // No synthetic-profile fallback: access is granted only through a real
+  // user_profiles row (see docs/migration-runbook.md §8).
+  if (!data) return null;
   return {
     id: (data.id as string | undefined) ?? (data.user_id as string | undefined) ?? user.id,
     email: (data.email as string | undefined) ?? user.email ?? '',
