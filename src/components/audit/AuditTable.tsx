@@ -29,6 +29,36 @@ function summarizeChange(log: Log): string {
     return `Imported ${payload.filename ?? 'file'} (inserted: ${payload.inserted ?? 0}, updated: ${payload.updated ?? 0}, skipped: ${payload.skipped ?? 0})`;
   }
 
+  const payload = (log.new_value ?? log.old_value) as Record<string, unknown> | null;
+
+  // revenue_entries audit rows carry stream/field labels (013 trigger) —
+  // render them as "Apple Music / FUGA · Mar 2026".
+  if (log.table_name === 'revenue_entries' && payload && typeof payload === 'object') {
+    const stream = payload.stream_name as string | undefined;
+    const field = payload.field_label as string | undefined;
+    const month = payload.month
+      ? new Date(String(payload.month)).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+      : '';
+    if (stream || field) {
+      const oldAmount = (log.old_value as Record<string, unknown> | null)?.amount;
+      const newAmount = (log.new_value as Record<string, unknown> | null)?.amount;
+      const change =
+        log.action === 'DELETE'
+          ? `removed (was ${Number(oldAmount ?? 0).toLocaleString()})`
+          : log.action === 'UPDATE'
+            ? `${Number(oldAmount ?? 0).toLocaleString()} → ${Number(newAmount ?? 0).toLocaleString()}`
+            : `set to ${Number(newAmount ?? 0).toLocaleString()}`;
+      return `${[stream, field].filter(Boolean).join(' / ')} · ${month}: ${change}`;
+    }
+  }
+
+  // Stream configuration audit rows also carry names/labels.
+  if (['revenue_streams', 'stream_fields', 'field_links'].includes(log.table_name) && payload) {
+    const label = (payload.name as string | undefined) ?? (payload.label as string | undefined) ?? (payload.target_bucket_label as string | undefined);
+    const what = log.table_name === 'revenue_streams' ? 'stream' : log.table_name === 'stream_fields' ? 'field' : 'lineage link';
+    if (label) return `${log.action === 'DELETE' ? 'Removed' : log.action === 'INSERT' ? 'Created' : 'Updated'} ${what} "${label}"`;
+  }
+
   if (log.new_value && typeof log.new_value === 'object') {
     const newObj = log.new_value as Record<string, unknown>;
     const oldObj = (log.old_value && typeof log.old_value === 'object' ? (log.old_value as Record<string, unknown>) : {}) ?? {};

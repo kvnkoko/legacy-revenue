@@ -2,22 +2,11 @@
 
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { useCurrency } from '@/contexts/CurrencyContext';
-import { STREAM_COLORS } from '@/lib/utils';
-
-const KEYS = [
-  { key: 'ringtune', name: 'Ringtune', color: STREAM_COLORS.ringtune },
-  { key: 'eauc', name: 'EAUC', color: STREAM_COLORS.eauc },
-  { key: 'combo', name: 'Combo', color: STREAM_COLORS.combo },
-  { key: 'sznb', name: 'SZNB', color: STREAM_COLORS.sznb },
-  { key: 'flow_subscription', name: 'Flow Sub', color: STREAM_COLORS.flow_subscription },
-  { key: 'youtube', name: 'YouTube', color: STREAM_COLORS.youtube },
-  { key: 'spotify', name: 'Spotify', color: STREAM_COLORS.spotify },
-  { key: 'tiktok', name: 'TikTok', color: STREAM_COLORS.tiktok },
-] as const;
 
 type Row = Record<string, unknown>;
+type DonutStream = { slug: string; name: string; color: string };
 
-export function StreamDonutChart({ data }: { data: Row | null }) {
+export function StreamDonutChart({ data, streams }: { data: Row | null; streams: DonutStream[] }) {
   const { formatCurrency } = useCurrency();
   if (!data) {
     return (
@@ -27,9 +16,9 @@ export function StreamDonutChart({ data }: { data: Row | null }) {
     );
   }
 
-  const pieData = KEYS.map(({ key, name, color }) => ({
+  const pieData = streams.map(({ slug, name, color }) => ({
     name,
-    value: Number(data[key] ?? 0),
+    value: Number(data[slug] ?? 0),
     color,
   })).filter((d) => d.value > 0);
 

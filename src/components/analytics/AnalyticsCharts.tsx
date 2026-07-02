@@ -4,17 +4,20 @@ import { useMemo, useState } from 'react';
 import { Area, AreaChart, Bar, BarChart, Brush, CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { format, parseISO } from 'date-fns';
 import { TimeRangeSelector } from '@/components/charts/TimeRangeSelector';
-import { filterMonthsByRange, formatMMK, rollingAverage, STREAM_COLORS, type TimeRangeKey } from '@/lib/utils';
+import { filterMonthsByRange, formatMMK, rollingAverage, type TimeRangeKey } from '@/lib/utils';
 
 type Row = Record<string, unknown>;
+type SummaryStream = { slug: string; name: string; color: string };
 
 export function AnalyticsCharts({
   summary,
+  streams,
   ringtune,
   mpt,
   atom,
 }: {
   summary: Row[];
+  streams: SummaryStream[];
   ringtune: Row[];
   mpt: Row[];
   atom: Row[];
@@ -57,17 +60,10 @@ export function AnalyticsCharts({
     if (!filtered.length) return [];
     const last = filtered[filtered.length - 1];
     const total = Number(last.total ?? 0) || 1;
-    return [
-      { name: 'Ringtune', value: (Number(last.ringtune ?? 0) / total) * 100, color: STREAM_COLORS.ringtune },
-      { name: 'EAUC', value: (Number(last.eauc ?? 0) / total) * 100, color: STREAM_COLORS.eauc },
-      { name: 'Combo', value: (Number(last.combo ?? 0) / total) * 100, color: STREAM_COLORS.combo },
-      { name: 'SZNB', value: (Number(last.sznb ?? 0) / total) * 100, color: STREAM_COLORS.sznb },
-      { name: 'Flow', value: (Number(last.flow_subscription ?? 0) / total) * 100, color: STREAM_COLORS.flow_subscription },
-      { name: 'YouTube', value: (Number(last.youtube ?? 0) / total) * 100, color: STREAM_COLORS.youtube },
-      { name: 'Spotify', value: (Number(last.spotify ?? 0) / total) * 100, color: STREAM_COLORS.spotify },
-      { name: 'TikTok', value: (Number(last.tiktok ?? 0) / total) * 100, color: STREAM_COLORS.tiktok },
-    ].filter((s) => s.value > 0);
-  }, [filtered]);
+    return streams
+      .map((s) => ({ name: s.name, value: (Number(last[s.slug] ?? 0) / total) * 100, color: s.color }))
+      .filter((s) => s.value > 0);
+  }, [filtered, streams]);
 
   const telecom = useMemo(() => ringtune.map((r) => ({
     monthLabel: r.month ? format(parseISO(String(r.month)), 'MMM yy') : '',
@@ -93,7 +89,7 @@ export function AnalyticsCharts({
   const telecomVsDirect = useMemo(() => filtered.map((row) => ({
     monthLabel: row.month ? format(parseISO(String(row.month)), 'MMM yy') : '',
     Telecom: Number(row.ringtune ?? 0) + Number(row.eauc ?? 0) + Number(row.combo ?? 0),
-    Direct: Number(row.sznb ?? 0) + Number(row.flow_subscription ?? 0) + Number(row.youtube ?? 0) + Number(row.spotify ?? 0) + Number(row.tiktok ?? 0),
+    Direct: Number(row.total ?? 0) - (Number(row.ringtune ?? 0) + Number(row.eauc ?? 0) + Number(row.combo ?? 0)),
   })), [filtered]);
 
   const cumulative = useMemo(() => {
@@ -129,8 +125,7 @@ export function AnalyticsCharts({
   }, [summary]);
 
   const lifecycle = useMemo(() => {
-    const streams = ['ringtune', 'eauc', 'combo', 'sznb', 'flow_subscription', 'youtube', 'spotify', 'tiktok'] as const;
-    return streams.map((key) => {
+    return streams.map(({ slug: key, name }) => {
       const values = summary.map((r) => Number(r[key] ?? 0));
       const first = values.findIndex((v) => v > 0);
       const last3 = values.slice(-3).reduce((a, b) => a + b, 0);
@@ -138,13 +133,34 @@ export function AnalyticsCharts({
       const trend = last3 > prev3 * 1.05 ? 'growing' : last3 < prev3 * 0.95 ? 'declining' : 'stable';
       return {
         key,
+        name,
         firstMonth: first >= 0 ? String(summary[first]?.month ?? '—') : '—',
         monthsActive: values.filter((v) => v > 0).length,
         allTimeTotal: values.reduce((a, b) => a + b, 0),
         trend,
       };
     });
-  }, [summary]);
+  }, [summary, streams]);
+
+  const momComparison = useMemo(() => {
+    if (summary.length < 2) return [];
+    const last = summary[summary.length - 1];
+    const prev = summary[summary.length - 2];
+    return streams
+      .map((s) => {
+        const current = Number(last[s.slug] ?? 0);
+        const previous = Number(prev[s.slug] ?? 0);
+        const delta = current - previous;
+        const pct = previous ? (delta / previous) * 100 : current > 0 ? 100 : 0;
+        return { name: s.name, color: s.color, current, previous, delta, pct };
+      })
+      .filter((s) => s.current > 0 || s.previous > 0);
+  }, [summary, streams]);
+
+  const topMovers = useMemo(
+    () => [...momComparison].sort((a, b) => Math.abs(b.pct) - Math.abs(a.pct)).slice(0, 3),
+    [momComparison]
+  );
 
   const seasonality = useMemo(() => {
     if (summary.length < 12) return [];
@@ -191,6 +207,51 @@ export function AnalyticsCharts({
         <div className="rounded-xl border border-border bg-card p-5"><p className="text-secondary text-sm">All-Time Total</p><p className="text-primary font-bold text-lg">{formatMMK(milestones.allTimeTotal)}</p></div>
         <div className="rounded-xl border border-border bg-card p-5"><p className="text-secondary text-sm">Average Monthly Revenue</p><p className="text-primary font-bold text-lg">{formatMMK(milestones.avg)}</p></div>
       </div>
+
+      {momComparison.length > 0 && (
+        <div className="rounded-xl border border-border bg-card p-6">
+          <h2 className="text-lg font-semibold text-primary mb-1">Month-over-Month by Stream</h2>
+          <p className="text-caption text-secondary mb-4">Latest recorded month vs the month before.</p>
+          <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+            {topMovers.map((m) => (
+              <div key={m.name} className="rounded-lg border border-border bg-elevated p-3">
+                <p className="text-caption text-secondary">Top mover</p>
+                <p className="text-body font-semibold" style={{ color: m.color }}>{m.name}</p>
+                <p className={`text-body font-bold ${m.pct >= 0 ? 'text-teal' : 'text-red-400'}`}>
+                  {m.pct >= 0 ? '+' : ''}{m.pct.toFixed(1)}%
+                </p>
+              </div>
+            ))}
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-body">
+              <thead>
+                <tr className="border-b border-border">
+                  <th className="p-2 text-left text-secondary">Stream</th>
+                  <th className="p-2 text-right text-secondary">This Month</th>
+                  <th className="p-2 text-right text-secondary">Last Month</th>
+                  <th className="p-2 text-right text-secondary">Change</th>
+                  <th className="p-2 text-right text-secondary">Change %</th>
+                </tr>
+              </thead>
+              <tbody>
+                {momComparison.map((m) => (
+                  <tr key={m.name} className="border-b border-border last:border-0">
+                    <td className="p-2 text-primary">
+                      <span className="mr-2 inline-block h-2 w-2 rounded-full" style={{ background: m.color }} />
+                      {m.name}
+                    </td>
+                    <td className="p-2 text-right text-primary">{formatMMK(m.current)}</td>
+                    <td className="p-2 text-right text-secondary">{formatMMK(m.previous)}</td>
+                    <td className={`p-2 text-right ${m.delta >= 0 ? 'text-teal' : 'text-red-400'}`}>{formatMMK(m.delta)}</td>
+                    <td className={`p-2 text-right ${m.pct >= 0 ? 'text-teal' : 'text-red-400'}`}>{m.pct >= 0 ? '+' : ''}{m.pct.toFixed(1)}%</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       <div className="rounded-xl border border-border bg-card p-6">
         <h2 className="text-lg font-semibold text-primary mb-4">Monthly Revenue Trend</h2>
@@ -255,7 +316,7 @@ export function AnalyticsCharts({
             <tbody>
               {lifecycle.map((row) => (
                 <tr key={row.key} className="border-b border-border last:border-0">
-                  <td className="p-2 text-primary">{row.key}</td>
+                  <td className="p-2 text-primary">{row.name}</td>
                   <td className="p-2 text-secondary">{row.firstMonth === '—' ? '—' : format(parseISO(row.firstMonth), 'MMM yyyy')}</td>
                   <td className="p-2 text-primary">{row.monthsActive}</td>
                   <td className="p-2 text-primary">{formatMMK(row.allTimeTotal)}</td>

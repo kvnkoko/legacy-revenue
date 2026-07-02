@@ -13,36 +13,14 @@ import {
   Line,
 } from 'recharts';
 import { filterMonthsByRange, rollingAverage, type TimeRangeKey } from '@/lib/utils';
-import { STREAM_COLORS } from '@/lib/utils';
 import { format, parseISO } from 'date-fns';
 import { TimeRangeSelector } from '@/components/charts/TimeRangeSelector';
 import { useCurrency } from '@/contexts/CurrencyContext';
 
-const STACK_KEYS = [
-  { key: 'ringtune', name: 'Ringtune', fill: STREAM_COLORS.ringtune },
-  { key: 'eauc', name: 'EAUC', fill: STREAM_COLORS.eauc },
-  { key: 'combo', name: 'Combo', fill: STREAM_COLORS.combo },
-  { key: 'sznb', name: 'SZNB', fill: STREAM_COLORS.sznb },
-  { key: 'flow_subscription', name: 'Flow Sub', fill: STREAM_COLORS.flow_subscription },
-  { key: 'youtube', name: 'YouTube', fill: STREAM_COLORS.youtube },
-  { key: 'spotify', name: 'Spotify', fill: STREAM_COLORS.spotify },
-  { key: 'tiktok', name: 'TikTok', fill: STREAM_COLORS.tiktok },
-] as const;
+type Row = { month: string; total?: number } & Record<string, unknown>;
+export type TrendStream = { slug: string; name: string; color: string };
 
-type Row = {
-  month: string;
-  total?: number;
-  ringtune?: number;
-  eauc?: number;
-  combo?: number;
-  sznb?: number;
-  flow_subscription?: number;
-  youtube?: number;
-  spotify?: number;
-  tiktok?: number;
-};
-
-export function RevenueTrendChart({ data }: { data: Row[] }) {
+export function RevenueTrendChart({ data, streams }: { data: Row[]; streams: TrendStream[] }) {
   const { formatCurrency } = useCurrency();
   const [range, setRange] = useState<TimeRangeKey>('12M');
   const [customStart, setCustomStart] = useState('');
@@ -98,15 +76,15 @@ export function RevenueTrendChart({ data }: { data: Row[] }) {
               labelStyle={{ color: '#f0f4ff' }}
               itemStyle={{ color: '#f0f4ff' }}
             />
-            {STACK_KEYS.map(({ key, name, fill }) => (
+            {streams.map(({ slug, name, color }) => (
               <Area
-                key={key}
+                key={slug}
                 type="monotone"
-                dataKey={key}
+                dataKey={slug}
                 name={name}
                 stackId="1"
-                stroke={fill}
-                fill={fill}
+                stroke={color}
+                fill={color}
                 fillOpacity={0.7}
               />
             ))}

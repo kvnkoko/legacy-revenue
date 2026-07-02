@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, Brush } from 'recharts';
 import { filterMonthsByRange, formatMMK, type TimeRangeKey } from '@/lib/utils';
@@ -15,8 +16,14 @@ import {
 } from '@/lib/streams/shared';
 
 export function StreamsView() {
+  const searchParams = useSearchParams();
   const [config, setConfig] = useState<StreamConfig | null>(null);
-  const [active, setActive] = useState('ringtune');
+  const [active, setActiveState] = useState(searchParams.get('stream') ?? 'ringtune');
+  const setActive = (slug: string) => {
+    setActiveState(slug);
+    // Deep-linkable without a navigation round trip.
+    window.history.replaceState(null, '', `/streams?stream=${slug}`);
+  };
   const [range, setRange] = useState<TimeRangeKey>('12M');
   const [loadAll, setLoadAll] = useState(false);
   const [customStart, setCustomStart] = useState('');

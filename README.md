@@ -94,11 +94,19 @@ Open [http://localhost:3000](http://localhost:3000). Sign up or sign in; you’l
 
 ## Database Schema (overview)
 
-- **revenue_summary** – Monthly totals by stream (ringtune, eauc, combo, sznb, flow_subscription, youtube, spotify, tiktok); `total` is a generated column.
-- **ringtune**, **mpt**, **atom**, **eauc**, **combo**, **local**, **sznb**, **flow_subscription**, **international**, **youtube**, **spotify**, **tiktok** – Detail tables keyed by `month`.
-- **audit_log** – Append-only log: `user_id`, `action` (INSERT/UPDATE/DELETE/IMPORT), `table_name`, `row_id`, `old_value`, `new_value`, `created_at`.
+**Config-driven model (migrations 013+):**
 
-All tables have RLS enabled; access is role- and permission-driven (`admin` / `staff` + per-user permissions JSONB).
+- **revenue_streams** – Stream definitions (entry / derived / summary), colors, ordering, category dimensions, summary membership. Editors manage these from `/admin/streams`.
+- **stream_fields** – The fields of each entry stream (one number per month each), with optional category grid positions and legacy/import metadata.
+- **field_links** – Lineage: which entry fields count toward which derived-stream buckets (e.g. MPT ringtune fields → Ringtune/MPT bucket).
+- **revenue_entries** – The single fact table (month × field × amount). Base facts only.
+- **Views** – `v_derived_bucket_totals`, `v_stream_month_totals`, `v_revenue_summary_compat` compute all derived numbers; nothing derived is ever stored.
+- **audit_log** – Append-only log written by SECURITY DEFINER triggers on every data and config table, enriched with actor identity and stream/field labels. Never updated or deleted.
+- **Legacy tables** (`revenue_summary`, `ringtune`, `mpt`, …) – Frozen read-only after migration 017; kept as historical reference until decommission (runbook §9).
+
+All tables have RLS enabled; access is role- and permission-driven (admin / editor / data / viewer + per-user permission overrides in JSONB).
+
+**Migrations & operations:** see `docs/migration-runbook.md` for the backup / rehearsal / verification workflow. Migrations `013–018` are transactional and self-verifying (they abort and roll back on any reconciliation mismatch). `supabase/scripts/000_drift_audit.sql` is the read-only pre-migration integrity check.
 
 ## Pages
 
@@ -109,8 +117,10 @@ All tables have RLS enabled; access is role- and permission-driven (`admin` / `s
 | `/entry`     | Multi-step wizard to add/update a month’s data |
 | `/import`    | Drag-and-drop Excel upload, parse, preview, upsert, store file in `imports` bucket |
 | `/analytics` | KPIs, trend, stream share pie, international bar chart, CSV export |
-| `/audit`     | Paginated audit log (filter by action) |
-| `/settings`  | Profile (email), currency note, notifications placeholder |
+| `/audit`     | Paginated audit log (filter by action/role/user) |
+| `/admin/streams` | Stream Management: create/configure streams, fields, categories and lineage (Editor/Admin) |
+| `/admin/users` | User management: invites, roles, per-user permission overrides |
+| `/settings`  | Profile, display currency and rate overrides |
 
 ## Currency
 
@@ -119,6 +129,7 @@ All amounts are **Myanmar Kyat (MMK)** and displayed with comma separators (e.g.
 ## Security
 
 - All routes except `/`, `/login`, `/signup` require authentication (middleware).
+- Roles: **Admin** (everything), **Editor** (configure streams + full data editing), **Data** (entry + import only), **Viewer** (read-only + export); per-user overrides supported.
 - Middleware + server actions + PostgreSQL RLS enforce RBAC and permissions.
 - API/data access uses Supabase client with anon key; RLS remains the final authority.
 - Do not expose `SUPABASE_SERVICE_ROLE_KEY` client-side.

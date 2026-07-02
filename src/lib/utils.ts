@@ -15,17 +15,6 @@ export function cn(...classes: (string | undefined | false)[]): string {
   return classes.filter(Boolean).join(' ');
 }
 
-export const STREAM_COLORS = {
-  ringtune: '#00d4c8',
-  eauc: '#3b82f6',
-  combo: '#8b5cf6',
-  sznb: '#f59e0b',
-  flow_subscription: '#10b981',
-  youtube: '#ef4444',
-  spotify: '#22c55e',
-  tiktok: '#ec4899',
-} as const;
-
 export function formatStreamLabel(value: string): string {
   const labels: Record<string, string> = {
     youtube: 'YouTube',

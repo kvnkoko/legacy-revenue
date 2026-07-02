@@ -1,5 +1,4 @@
-import { createClient } from '@/lib/supabase/server';
-import { getStreamMatrix } from '@/lib/streams/server';
+import { getStreamMatrix, getSummaryMatrix } from '@/lib/streams/server';
 import { AnalyticsCharts } from '@/components/analytics/AnalyticsCharts';
 import { getServerPermissions } from '@/lib/authz/server';
 import { AccessDenied } from '@/components/authz/AccessDenied';
@@ -27,24 +26,22 @@ export default async function AnalyticsPage({
     );
   }
 
-  const supabase = await createClient();
   const loadAll = searchParams?.all === '1';
   const fromMonth = (() => {
     const d = new Date();
     d.setMonth(d.getMonth() - 11);
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
   })();
-  const summaryQuery = supabase.from('v_revenue_summary_compat').select('*').order('month', { ascending: true });
-  if (!loadAll) summaryQuery.gte('month', fromMonth);
   const matrixOpts = loadAll ? {} : { fromMonth };
-  // Matrices are shaped like the frozen legacy tables (month + column slugs),
-  // so AnalyticsCharts consumes them unchanged.
-  const [{ data: summary }, ringtuneMatrix, mptMatrix, atomMatrix] = await Promise.all([
-    summaryQuery,
+  // Summary matrix is config-driven (new streams appear automatically);
+  // stream matrices are shaped like the frozen legacy tables.
+  const [summaryMatrix, ringtuneMatrix, mptMatrix, atomMatrix] = await Promise.all([
+    getSummaryMatrix(matrixOpts),
     getStreamMatrix('ringtune', matrixOpts),
     getStreamMatrix('mpt', matrixOpts),
     getStreamMatrix('atom', matrixOpts),
   ]);
+  const summary = summaryMatrix.rows;
   const ringtune = ringtuneMatrix?.rows ?? [];
   const mpt = mptMatrix?.rows ?? [];
   const atom = atomMatrix?.rows ?? [];
@@ -58,7 +55,7 @@ export default async function AnalyticsPage({
           {loadAll ? 'Show recent 12 months' : 'Load all months'}
         </a>
       </div>
-      <AnalyticsCharts summary={summary ?? []} ringtune={ringtune} mpt={mpt} atom={atom} />
+      <AnalyticsCharts summary={summary} streams={summaryMatrix.streams} ringtune={ringtune} mpt={mpt} atom={atom} />
     </div>
   );
 }

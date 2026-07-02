@@ -1,6 +1,5 @@
-import { createClient } from '@/lib/supabase/server';
-import { getStreamTotals } from '@/lib/streams/server';
-import { formatPercent, formatStreamLabel, STREAM_COLORS } from '@/lib/utils';
+import { getStreamTotals, getSummaryMatrix } from '@/lib/streams/server';
+import { formatPercent } from '@/lib/utils';
 import { FormattedCurrency } from '@/components/ui/FormattedCurrency';
 import { RevenueTrendChart } from '@/components/dashboard/RevenueTrendChart';
 import { StreamDonutChart } from '@/components/dashboard/StreamDonutChart';
@@ -32,90 +31,65 @@ export default async function DashboardPage({
 }: {
   searchParams?: Record<string, string | string[] | undefined>;
 }) {
-  const supabase = await createClient();
   const loadAll = searchParams?.all === '1';
   const fromMonth = (() => {
     const d = new Date();
     d.setMonth(d.getMonth() - 11);
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
   })();
-  const summaryQuery = supabase
-    .from('v_revenue_summary_compat')
-    .select('*')
-    .order('month', { ascending: true });
-  if (!loadAll) summaryQuery.gte('month', fromMonth);
-  const [{ data: summary }, { data: summaryAll }, streamTotals] = await Promise.all([
-    summaryQuery,
-    supabase.from('v_revenue_summary_compat').select('*').order('month', { ascending: true }),
-    getStreamTotals(),
-  ]);
 
-  const months = summary ?? [];
-  const monthsAll = summaryAll ?? [];
+  // Everything below is config-driven: streams created in Stream Management
+  // appear in the KPIs, charts and history automatically.
+  const [matrix, streamTotals] = await Promise.all([getSummaryMatrix(), getStreamTotals()]);
+  const monthsAll = matrix.rows;
+  const months = loadAll ? monthsAll : monthsAll.filter((r) => r.month >= fromMonth);
+
   const latestRecordedMonth = monthsAll.length ? monthsAll[monthsAll.length - 1] : null;
   const prevRecordedMonth = monthsAll.length > 1 ? monthsAll[monthsAll.length - 2] : null;
-  const latestRecordedYear = latestRecordedMonth ? new Date(String(latestRecordedMonth.month)).getFullYear() : null;
+  const latestRecordedYear = latestRecordedMonth ? new Date(latestRecordedMonth.month).getFullYear() : null;
 
-  const totalRevenue = latestRecordedMonth?.total ?? 0;
+  const totalRevenue = Number(latestRecordedMonth?.total ?? 0);
   const momGrowth =
-    prevRecordedMonth && prevRecordedMonth.total
-      ? ((Number(latestRecordedMonth?.total ?? 0) - Number(prevRecordedMonth.total)) / Number(prevRecordedMonth.total)) *
-        100
+    prevRecordedMonth && Number(prevRecordedMonth.total)
+      ? ((totalRevenue - Number(prevRecordedMonth.total)) / Number(prevRecordedMonth.total)) * 100
       : null;
-  const ytdTotal = latestRecordedYear == null
-    ? 0
-    : monthsAll
-        .filter((r) => new Date(String(r.month)).getFullYear() === latestRecordedYear)
-        .reduce((s, r) => s + Number(r.total ?? 0), 0);
-  const streamNames = [
-    'ringtune',
-    'eauc',
-    'combo',
-    'sznb',
-    'flow_subscription',
-    'youtube',
-    'spotify',
-    'tiktok',
-  ] as const;
-  type StreamName = (typeof streamNames)[number];
+
+  // YoY: same calendar month, previous year (when history reaches that far).
+  const yoyGrowth = (() => {
+    if (!latestRecordedMonth) return null;
+    const d = new Date(latestRecordedMonth.month);
+    d.setFullYear(d.getFullYear() - 1);
+    const prior = monthsAll.find((r) => r.month === monthKey(d));
+    if (!prior || !Number(prior.total)) return null;
+    return ((totalRevenue - Number(prior.total)) / Number(prior.total)) * 100;
+  })();
+
+  const ytdTotal =
+    latestRecordedYear == null
+      ? 0
+      : monthsAll
+          .filter((r) => new Date(r.month).getFullYear() === latestRecordedYear)
+          .reduce((s, r) => s + Number(r.total ?? 0), 0);
+
   const bestStream = latestRecordedMonth
-    ? streamNames.reduce<{ name: StreamName; value: number }>(
-        (best, key) => {
-          const val = Number((latestRecordedMonth as Record<string, unknown>)[key] ?? 0);
-          return val > best.value ? { name: key, value: val } : best;
-        },
-        { name: 'ringtune', value: 0 }
-      )
+    ? matrix.streams.reduce<{ name: string; color: string; value: number } | null>((best, s) => {
+        const val = Number(latestRecordedMonth[s.slug] ?? 0);
+        return !best || val > best.value ? { name: s.name, color: s.color, value: val } : best;
+      }, null)
     : null;
 
-  const historyRows = monthsAll.map((m) => ({
-    month: m.month as string,
-    ringtune: Number(m.ringtune ?? 0),
-    eauc: Number(m.eauc ?? 0),
-    combo: Number(m.combo ?? 0),
-    sznb: Number(m.sznb ?? 0),
-    flow_subscription: Number(m.flow_subscription ?? 0),
-    youtube: Number(m.youtube ?? 0),
-    spotify: Number(m.spotify ?? 0),
-    tiktok: Number(m.tiktok ?? 0),
-    total: Number(m.total ?? 0),
-  }));
   const expected = monthRange('2025-01-01', monthKey(new Date()));
-  const existingSet = new Set(monthsAll.map((m) => m.month as string));
+  const existingSet = new Set(monthsAll.map((m) => m.month));
   const missingMonths = expected.filter((m) => !existingSet.has(m));
 
   const currentCalendarMonth = monthKey(new Date());
   const hasCurrentData = existingSet.has(currentCalendarMonth);
 
-  const latestMonthKey = latestRecordedMonth ? String(latestRecordedMonth.month) : '';
+  const latestMonthKey = latestRecordedMonth?.month ?? '';
   const totalFor = (slug: string) => Number(streamTotals[slug]?.[latestMonthKey] ?? 0);
-  const directCurrent =
-    Number(latestRecordedMonth?.sznb ?? 0) +
-    Number(latestRecordedMonth?.flow_subscription ?? 0) +
-    Number(latestRecordedMonth?.youtube ?? 0) +
-    Number(latestRecordedMonth?.spotify ?? 0) +
-    Number(latestRecordedMonth?.tiktok ?? 0);
-  const mptTotal = totalFor('mpt');
+  const directCurrent = matrix.streams
+    .filter((s) => !['ringtune', 'eauc', 'combo'].includes(s.slug))
+    .reduce((sum, s) => sum + Number(latestRecordedMonth?.[s.slug] ?? 0), 0);
 
   return (
     <div className="space-y-6">
@@ -136,8 +110,8 @@ export default async function DashboardPage({
           <p className="text-caption font-medium text-secondary">Total Revenue (Latest Recorded Month)</p>
           <p className="text-title font-bold text-teal mt-1"><FormattedCurrency value={totalRevenue} /></p>
           <p className="text-micro text-muted mt-0.5">
-            {latestRecordedMonth?.month
-              ? new Date(String(latestRecordedMonth.month)).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+            {latestRecordedMonth
+              ? new Date(latestRecordedMonth.month).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
               : 'No data yet'}
           </p>
         </div>
@@ -150,6 +124,11 @@ export default async function DashboardPage({
           >
             {momGrowth != null ? formatPercent(momGrowth) : '—'}
           </p>
+          {yoyGrowth != null && (
+            <p className={`text-micro mt-0.5 ${yoyGrowth < 0 ? 'text-danger' : 'text-secondary'}`}>
+              YoY: {formatPercent(yoyGrowth)}
+            </p>
+          )}
         </div>
         <div className="rounded-xl border border-border bg-card p-5 hover:border-border-hover transition">
           <p className="text-caption font-medium text-secondary">YTD Total {latestRecordedYear ? `(${latestRecordedYear})` : ''}</p>
@@ -157,11 +136,8 @@ export default async function DashboardPage({
         </div>
         <div className="rounded-xl border border-border bg-card p-5 hover:border-border-hover transition">
           <p className="text-caption font-medium text-secondary">Best Performing Stream</p>
-          <p
-            className="text-title font-bold mt-1 capitalize"
-            style={{ color: bestStream ? STREAM_COLORS[bestStream.name] : undefined }}
-          >
-            {bestStream ? formatStreamLabel(bestStream.name) : '—'}
+          <p className="text-title font-bold mt-1" style={{ color: bestStream?.color }}>
+            {bestStream?.name ?? '—'}
           </p>
           {bestStream && (
             <p className="text-micro text-muted mt-0.5"><FormattedCurrency value={bestStream.value} /></p>
@@ -181,11 +157,11 @@ export default async function DashboardPage({
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         <div className="lg:col-span-2 rounded-xl border border-border bg-card p-5">
           <h2 className="text-body font-semibold text-primary mb-4">Revenue trend</h2>
-          <RevenueTrendChart data={months} />
+          <RevenueTrendChart data={months} streams={matrix.streams} />
         </div>
         <div className="rounded-xl border border-border bg-card p-5">
           <h2 className="text-body font-semibold text-primary mb-4">Latest recorded month by stream</h2>
-          <StreamDonutChart data={latestRecordedMonth} />
+          <StreamDonutChart data={latestRecordedMonth} streams={matrix.streams} />
         </div>
       </div>
 
@@ -197,18 +173,18 @@ export default async function DashboardPage({
 
       <RevenueArchitectureDiagram
         values={{
-          mpt: mptTotal,
+          mpt: totalFor('mpt'),
           atom: totalFor('atom'),
           ooredoo: totalFor('ooredoo'),
           direct: directCurrent,
           ringtune: Number(latestRecordedMonth?.ringtune ?? 0),
           eauc: Number(latestRecordedMonth?.eauc ?? 0),
           combo: Number(latestRecordedMonth?.combo ?? 0),
-          total: Number(latestRecordedMonth?.total ?? 0),
+          total: totalRevenue,
         }}
       />
 
-      <RevenueHistoryTable rows={historyRows} missingMonths={missingMonths} />
+      <RevenueHistoryTable rows={monthsAll} streams={matrix.streams} missingMonths={missingMonths} />
     </div>
   );
 }

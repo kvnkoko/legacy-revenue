@@ -32,8 +32,40 @@ export const DEFAULT_RATES: Record<CurrencyCode, number> = {
 };
 
 const FRANKFURTER_API = 'https://api.frankfurter.app/v1/latest';
+const RATES_CACHE_KEY = 'legacy-revenue:fx-rates';
+const RATES_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // daily refresh — display-only precision
+
+function readCachedRates(): Partial<Record<CurrencyCode, number>> | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.localStorage.getItem(RATES_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { at: number; rates: Partial<Record<CurrencyCode, number>> };
+    if (!parsed?.at || Date.now() - parsed.at > RATES_CACHE_TTL_MS) return null;
+    return parsed.rates;
+  } catch {
+    return null;
+  }
+}
+
+function writeCachedRates(rates: Partial<Record<CurrencyCode, number>>) {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(RATES_CACHE_KEY, JSON.stringify({ at: Date.now(), rates }));
+  } catch {
+    // storage unavailable — harmless, we just refetch next load
+  }
+}
 
 export async function fetchRatesFromMMK(): Promise<Partial<Record<CurrencyCode, number>>> {
+  const cached = readCachedRates();
+  if (cached) return cached;
+  const fetched = await fetchRatesFromMMKUncached();
+  if (Object.keys(fetched).length) writeCachedRates(fetched);
+  return fetched;
+}
+
+async function fetchRatesFromMMKUncached(): Promise<Partial<Record<CurrencyCode, number>>> {
   // Frankfurter: from=USD gives rates as "X per 1 USD". We need "MMK per 1 [currency]".
   // Fetch USD base, get MMK and others. rate[THB] = mmkPerUsd / thbPerUsd = MMK per 1 THB.
   const codes = CURRENCIES.map((c) => c.code).filter((c) => c !== 'USD').join(',');
