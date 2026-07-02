@@ -6,6 +6,9 @@ import * as XLSX from 'xlsx';
 import { toast } from 'sonner';
 import { formatMMK } from '@/lib/utils';
 import { importExcelAction } from '@/app/(dashboard)/import/actions';
+import { createClient } from '@/lib/supabase/client';
+import { fetchStreamConfig } from '@/lib/streams/shared';
+import { buildTemplateSpec } from '@/lib/streams/import-map';
 
 type ParsedSheet = { name: string; rows: Record<string, unknown>[] };
 
@@ -75,8 +78,33 @@ export function ImportExcelClient() {
     router.refresh();
   }, [parsed, filename, router]);
 
+  const downloadTemplate = useCallback(async () => {
+    try {
+      const supabase = createClient();
+      const config = await fetchStreamConfig(supabase);
+      const spec = buildTemplateSpec(config);
+      const wb = XLSX.utils.book_new();
+      for (const { sheet, headers } of spec) {
+        const ws = XLSX.utils.aoa_to_sheet([headers]);
+        XLSX.utils.book_append_sheet(wb, ws, sheet.slice(0, 31));
+      }
+      XLSX.writeFile(wb, `legacy-revenue-template-${new Date().toISOString().slice(0, 10)}.xlsx`);
+    } catch {
+      toast.error('Failed to build template from stream config');
+    }
+  }, []);
+
   return (
     <div className="space-y-6">
+      <div className="flex justify-end">
+        <button
+          type="button"
+          onClick={downloadTemplate}
+          className="rounded-lg border border-border px-3 py-1.5 text-caption text-secondary hover:bg-elevated"
+        >
+          Download template (matches current streams)
+        </button>
+      </div>
       <div
         onDrop={onDrop}
         onDragOver={onDragOver}

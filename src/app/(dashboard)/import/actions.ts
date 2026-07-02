@@ -5,42 +5,17 @@ import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { revalidatePath } from 'next/cache';
 import { requirePermission } from '@/lib/authz/server';
+import { fetchStreamConfig } from '@/lib/streams/shared';
+import {
+  MPT_POSITIONAL_LAYOUT,
+  isMptPositionalRow,
+  normalizeKey,
+  resolveSheetPlan,
+  type SheetPlan,
+} from '@/lib/streams/import-map';
+import type { StreamConfig } from '@/lib/streams/types';
 
 type ParsedSheet = { name: string; rows: Record<string, unknown>[] };
-
-const SHEET_TABLE_MAP: Record<string, string> = {
-  Revenue: 'revenue_summary',
-  Ringtune: 'ringtune',
-  MPT: 'mpt',
-  Atom: 'atom',
-  EAUC: 'eauc',
-  Combo: 'combo',
-  Local: 'local',
-  SZNB: 'sznb',
-  'Flow Subscription': 'flow_subscription',
-  International: 'international',
-  YouTube: 'youtube',
-  Spotify: 'spotify',
-  Tiktok: 'tiktok',
-};
-
-const IMPORT_ORDER = ['MPT', 'Atom', 'Ringtune', 'EAUC', 'Combo', 'SZNB', 'Flow Subscription', 'YouTube', 'Spotify', 'Tiktok', 'Revenue'];
-
-const TABLE_COLUMNS: Record<string, string[]> = {
-  revenue_summary: ['month', 'ringtune', 'eauc', 'combo', 'sznb', 'flow_music_zone', 'flow_subscription', 'flow_data_pack', 'youtube', 'spotify', 'tiktok'],
-  ringtune: ['month', 'mpt', 'atom', 'ooredoo'],
-  mpt: ['month', 'legacy_ringtune', 'legacy_eauc', 'legacy_combo', 'etrade_ringtune', 'etrade_eauc', 'etrade_combo', 'fortune_ringtune', 'fortune_eauc', 'fortune_combo', 'unico_ringtune', 'unico_eauc', 'unico_combo'],
-  atom: ['month', 'ringtune', 'eauc', 'combo'],
-  eauc: ['month', 'mpt', 'atom'],
-  combo: ['month', 'mpt', 'atom'],
-  local: ['month', 'mpt', 'atom', 'ooredoo'],
-  sznb: ['month', 'mpt', 'atom', 'kpay_mini_app', 'kpay_qr', 'kpay_ecommerce', 'wave_money', 'dinger'],
-  flow_subscription: ['month', 'mpt', 'kpay'],
-  international: ['month', 'solution_one', 'fuga', 'believe'],
-  youtube: ['month', 'solution_one', 'fuga', 'believe'],
-  spotify: ['month', 'fuga', 'believe'],
-  tiktok: ['month', 'fuga', 'believe'],
-};
 
 function toNum(v: unknown): number {
   if (typeof v === 'number' && !Number.isNaN(v)) return v;
@@ -51,16 +26,6 @@ function toNum(v: unknown): number {
   return 0;
 }
 
-function normalizeKey(key: string): string {
-  return key.toLowerCase().trim().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
-}
-
-function normalizeImportColumnKey(key: string): string {
-  const normalized = normalizeKey(key);
-  if (normalized === 'kpay_ecomence') return 'kpay_ecommerce';
-  return normalized;
-}
-
 function normalizeMonth(raw: unknown): string | null {
   const finalize = (year: number, month: number): string | null => {
     if (!year || !month) return null;
@@ -68,15 +33,14 @@ function normalizeMonth(raw: unknown): string | null {
     return `${year}-${String(month).padStart(2, '0')}-01`;
   };
   if (!raw) return null;
-  if (raw instanceof Date && !Number.isNaN((raw as Date).getTime())) {
-    return finalize((raw as Date).getFullYear(), (raw as Date).getMonth() + 1);
+  if (raw instanceof Date && !Number.isNaN(raw.getTime())) {
+    return finalize(raw.getFullYear(), raw.getMonth() + 1);
   }
   if (typeof raw === 'string') {
-    const trimmed = String(raw).trim();
+    const trimmed = raw.trim();
     if (/^\d{4}-\d{2}/.test(trimmed)) return finalize(Number(trimmed.slice(0, 4)), Number(trimmed.slice(5, 7)));
     if (/^\d+$/.test(trimmed)) {
-      const serial = Number(trimmed);
-      const parsedCode = XLSX.SSF?.parse_date_code?.(serial);
+      const parsedCode = XLSX.SSF?.parse_date_code?.(Number(trimmed));
       if (parsedCode?.y && parsedCode?.m) return finalize(parsedCode.y, parsedCode.m);
     }
     const parsed = new Date(raw);
@@ -91,29 +55,40 @@ function normalizeMonth(raw: unknown): string | null {
   return null;
 }
 
-function parseLegacyMptRow(rawRow: Record<string, unknown>): Record<string, unknown> {
-  return {
-    legacy_ringtune: toNum(rawRow.Legacy),
-    legacy_eauc: toNum(rawRow.__EMPTY),
-    legacy_combo: toNum(rawRow.__EMPTY_1),
-    etrade_ringtune: toNum(rawRow.Etrade),
-    etrade_eauc: toNum(rawRow.__EMPTY_2),
-    etrade_combo: toNum(rawRow.__EMPTY_3),
-    fortune_ringtune: toNum(rawRow.Fortune),
-    fortune_eauc: toNum(rawRow.__EMPTY_4),
-    fortune_combo: toNum(rawRow.__EMPTY_5),
-    unico_ringtune: toNum(rawRow.Unico),
-    unico_eauc: toNum(rawRow.__EMPTY_6),
-    unico_combo: toNum(rawRow.__EMPTY_7),
-  };
-}
+/** Resolves one sheet row to { fieldId: amount } using the sheet plan. */
+function resolveRowAmounts(
+  plan: SheetPlan,
+  config: StreamConfig,
+  row: Record<string, unknown>
+): Record<string, number> {
+  const out: Record<string, number> = {};
 
-function areRowsEquivalent(incoming: Record<string, unknown>, existing: Record<string, unknown> | undefined): boolean {
-  if (!existing) return false;
-  return Object.entries(incoming).every(([key, value]) => {
-    if (key === 'month') return String(value) === String(existing[key] ?? '');
-    return Math.abs(toNum(value) - toNum(existing[key])) < 0.0001;
-  });
+  // Historical MPT layout: merged headers export as Legacy/__EMPTY/... columns.
+  if (plan.mptPositional && isMptPositionalRow(row)) {
+    const mptStream = config.streams.find((s) => s.slug === 'mpt');
+    const bySlug = new Map(
+      plan.writable
+        .filter((w) => mptStream && w.field.streamId === mptStream.id)
+        .map((w) => [w.field.slug, w.field.id])
+    );
+    for (const [rawKey, slug] of Object.entries(MPT_POSITIONAL_LAYOUT)) {
+      const fieldId = bySlug.get(slug);
+      if (fieldId && rawKey in row) out[fieldId] = toNum(row[rawKey]);
+    }
+    return out;
+  }
+
+  const byKey = new Map<string, string>();
+  for (const w of plan.writable) {
+    for (const key of w.keys) byKey.set(key, w.field.id);
+  }
+  for (const [k, v] of Object.entries(row)) {
+    const key = normalizeKey(k);
+    if (key === 'month') continue;
+    const fieldId = byKey.get(key);
+    if (fieldId) out[fieldId] = toNum(v);
+  }
+  return out;
 }
 
 export async function importExcelAction(parsed: ParsedSheet[], filename: string = 'import.xlsx') {
@@ -125,63 +100,140 @@ export async function importExcelAction(parsed: ParsedSheet[], filename: string 
   if (!user) throw new Error('Unauthorized');
 
   const admin = createAdminClient();
+  const config = await fetchStreamConfig(admin);
   let inserted = 0;
   let updated = 0;
   let skipped = 0;
   const warnings: string[] = [];
 
-  for (const sheetName of IMPORT_ORDER) {
-    const sheet = parsed.find((s) => s.name === sheetName);
-    if (!sheet) continue;
-    const tableName = SHEET_TABLE_MAP[sheet.name];
-    if (!tableName) continue;
-    const allowedColumns = TABLE_COLUMNS[tableName] ?? ['month'];
-    const normalizedRows = new Map<string, Record<string, unknown>>();
+  // ---- Write pass: entry-stream fields only (base facts are authoritative) --
+  for (const sheet of parsed) {
+    const plan = resolveSheetPlan(config, sheet.name);
+    if (!plan.writable.length) {
+      if (!plan.verifyStreamSlug) warnings.push(`${sheet.name}: sheet not recognized, ignored`);
+      continue;
+    }
 
+    // month → { fieldId: amount }
+    const rowsByMonth = new Map<string, Record<string, number>>();
     for (const row of sheet.rows) {
       const monthStr = normalizeMonth(row.month ?? row.Month);
       if (!monthStr) {
-        warnings.push(`${sheetName}: skipped row with invalid month`);
+        warnings.push(`${sheet.name}: skipped row with invalid month`);
         continue;
       }
-      const clean: Record<string, unknown> = { month: monthStr };
-      if (tableName === 'mpt' && 'Legacy' in row && '__EMPTY' in row && '__EMPTY_1' in row) {
-        Object.assign(clean, parseLegacyMptRow(row));
-        normalizedRows.set(monthStr, clean);
-        continue;
-      }
-      for (const [k, v] of Object.entries(row)) {
-        const key = normalizeImportColumnKey(k);
-        if (key === 'month') continue;
-        if (!allowedColumns.includes(key)) continue;
-        clean[key] = toNum(v);
-      }
-      normalizedRows.set(monthStr, clean);
+      const amounts = resolveRowAmounts(plan, config, row);
+      if (Object.keys(amounts).length) rowsByMonth.set(monthStr, amounts);
     }
+    if (!rowsByMonth.size) continue;
 
-    const monthsToCheck = Array.from(normalizedRows.keys());
-    if (!monthsToCheck.length) continue;
-
+    const months = Array.from(rowsByMonth.keys());
+    const fieldIds = plan.writable.map((w) => w.field.id);
     const { data: existingRows, error: fetchError } = await admin
-      .from(tableName)
-      .select('*')
-      .in('month', monthsToCheck);
-    if (fetchError) return { error: `${tableName}: ${fetchError.message}`, inserted, updated, skipped, warnings };
-
-    const existingByMonth = new Map<string, Record<string, unknown>>(
-      (existingRows ?? []).map((r) => [String(r.month), r as Record<string, unknown>])
+      .from('revenue_entries')
+      .select('month, field_id, amount')
+      .in('month', months)
+      .in('field_id', fieldIds);
+    if (fetchError) return { error: `${sheet.name}: ${fetchError.message}`, inserted, updated, skipped, warnings };
+    const existing = new Map(
+      (existingRows ?? []).map((r) => [`${r.month}|${r.field_id}`, Number(r.amount ?? 0)])
     );
 
-    for (const [monthStr, clean] of Array.from(normalizedRows.entries())) {
-      const existing = existingByMonth.get(monthStr);
-      if (areRowsEquivalent(clean, existing)) {
+    for (const [monthStr, amounts] of Array.from(rowsByMonth.entries())) {
+      const changed = Object.entries(amounts).filter(([fieldId, amount]) => {
+        const prev = existing.get(`${monthStr}|${fieldId}`);
+        return prev === undefined || Math.abs(prev - amount) >= 0.0001;
+      });
+      if (!changed.length) {
         skipped++;
         continue;
       }
-      const { error: upsertError } = await admin.from(tableName).upsert(clean, { onConflict: 'month' });
-      if (upsertError) return { error: `${tableName}: ${upsertError.message}`, inserted, updated, skipped, warnings };
-      if (existing) updated++;
+      const hadAny = Object.keys(amounts).some((fieldId) => existing.has(`${monthStr}|${fieldId}`));
+      const { error: upsertError } = await admin.from('revenue_entries').upsert(
+        changed.map(([fieldId, amount]) => ({
+          month: monthStr,
+          field_id: fieldId,
+          amount,
+          created_by: user.id,
+        })),
+        { onConflict: 'month,field_id' }
+      );
+      if (upsertError) return { error: `${sheet.name}: ${upsertError.message}`, inserted, updated, skipped, warnings };
+      if (hadAny) updated++;
       else inserted++;
+    }
+  }
+
+  // ---- Verify pass: derived sheets are checked against computed views -------
+  for (const sheet of parsed) {
+    const plan = resolveSheetPlan(config, sheet.name);
+    if (!plan.verifyStreamSlug) continue;
+
+    const monthsInSheet = new Map<string, Record<string, number>>();
+    const writableKeys = new Set(plan.writable.flatMap((w) => w.keys));
+    for (const row of sheet.rows) {
+      const monthStr = normalizeMonth(row.month ?? row.Month);
+      if (!monthStr) continue;
+      const values: Record<string, number> = {};
+      for (const [k, v] of Object.entries(row)) {
+        const key = normalizeKey(k);
+        if (key === 'month' || writableKeys.has(key)) continue;
+        values[key] = toNum(v);
+      }
+      monthsInSheet.set(monthStr, values);
+    }
+    if (!monthsInSheet.size) continue;
+    const months = Array.from(monthsInSheet.keys());
+
+    if (plan.verifyStreamSlug === 'summary') {
+      const { data: computedRows } = await admin
+        .from('v_revenue_summary_compat')
+        .select('*')
+        .in('month', months);
+      const computedByMonth = new Map((computedRows ?? []).map((r) => [String(r.month), r as Record<string, unknown>]));
+      for (const [monthStr, values] of Array.from(monthsInSheet.entries())) {
+        const computed = computedByMonth.get(monthStr);
+        for (const [col, sheetVal] of Object.entries(values)) {
+          const computedVal = toNum(computed?.[col]);
+          if (computed && col in computed && Math.abs(computedVal - sheetVal) > 0.01) {
+            warnings.push(
+              `${sheet.name} ${monthStr} "${col}": sheet ${sheetVal.toLocaleString()} ≠ computed ${computedVal.toLocaleString()} — sheet value ignored; base sheets are authoritative`
+            );
+          }
+        }
+      }
+    } else {
+      const stream = config.streams.find((s) => s.slug === plan.verifyStreamSlug);
+      if (!stream) continue;
+      const { data: bucketRows } = await admin
+        .from('v_derived_bucket_totals')
+        .select('month, bucket_slug, amount')
+        .eq('stream_id', stream.id)
+        .in('month', months);
+      const computed = new Map(
+        (bucketRows ?? []).map((r) => [`${r.month}|${r.bucket_slug}`, Number(r.amount ?? 0)])
+      );
+      for (const [monthStr, values] of Array.from(monthsInSheet.entries())) {
+        for (const [col, sheetVal] of Object.entries(values)) {
+          if (col === 'total') {
+            const total = (bucketRows ?? [])
+              .filter((r) => String(r.month) === monthStr)
+              .reduce((s, r) => s + Number(r.amount ?? 0), 0);
+            if (Math.abs(total - sheetVal) > 0.01) {
+              warnings.push(
+                `${sheet.name} ${monthStr} "total": sheet ${sheetVal.toLocaleString()} ≠ computed ${total.toLocaleString()} — sheet value ignored; base sheets are authoritative`
+              );
+            }
+            continue;
+          }
+          const key = `${monthStr}|${col}`;
+          if (computed.has(key) && Math.abs(computed.get(key)! - sheetVal) > 0.01) {
+            warnings.push(
+              `${sheet.name} ${monthStr} "${col}": sheet ${sheetVal.toLocaleString()} ≠ computed ${computed.get(key)!.toLocaleString()} — sheet value ignored; base sheets are authoritative`
+            );
+          }
+        }
+      }
     }
   }
 
@@ -193,11 +245,14 @@ export async function importExcelAction(parsed: ParsedSheet[], filename: string 
     action: 'IMPORT',
     table_name: 'import',
     row_id: filename,
-    new_value: { inserted, updated, skipped, filename },
+    new_value: { inserted, updated, skipped, warnings: warnings.length, filename },
   });
 
   revalidatePath('/dashboard');
   revalidatePath('/streams');
   revalidatePath('/import');
+  revalidatePath('/analytics');
+  revalidatePath('/history');
+  revalidatePath('/entry');
   return { error: null, inserted, updated, skipped, warnings };
 }
