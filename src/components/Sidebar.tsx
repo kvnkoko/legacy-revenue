@@ -18,6 +18,7 @@ import {
   GearIcon,
   UsersThreeIcon,
   SignOutIcon,
+  TreeStructureIcon,
 } from '@phosphor-icons/react';
 
 export function Sidebar({
@@ -60,6 +61,7 @@ export function Sidebar({
       { href: '/entry', label: 'Data Entry', Icon: PencilSimpleLineIcon, show: perms.can.enterData || perms.isAdmin },
       { href: '/import', label: 'Import Excel', Icon: FileXlsIcon, show: perms.can.importExcel || perms.isAdmin },
       { href: '/history', label: 'History', Icon: ScrollIcon, show: perms.can.viewStreams || perms.isAdmin },
+      { href: '/admin/streams', label: 'Stream Management', Icon: TreeStructureIcon, show: perms.can.configureStreams || perms.isAdmin },
       { href: '/admin/users', label: 'User Management', Icon: UsersThreeIcon, show: perms.can.manageUsers || perms.isAdmin },
       { href: '/audit', label: 'Audit Log', Icon: ScrollIcon, show: perms.can.viewAuditLog || perms.isAdmin },
       { href: '/settings', label: 'Settings', Icon: GearIcon, show: true },
