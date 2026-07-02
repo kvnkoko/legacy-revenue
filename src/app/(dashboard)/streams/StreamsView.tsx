@@ -1,126 +1,164 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, Brush } from 'recharts';
-import { filterMonthsByRange, formatMMK, formatStreamLabel, type TimeRangeKey } from '@/lib/utils';
+import { filterMonthsByRange, formatMMK, type TimeRangeKey } from '@/lib/utils';
 import { cn } from '@/lib/utils';
 import { TimeRangeSelector } from '@/components/charts/TimeRangeSelector';
-
-const TABS = [
-  { id: 'ringtune', label: 'Ringtune', lineage: 'derived' as const },
-  { id: 'mpt', label: 'MPT', lineage: 'source' as const },
-  { id: 'atom', label: 'Atom', lineage: 'source' as const },
-  { id: 'eauc', label: 'EAUC', lineage: 'derived' as const },
-  { id: 'combo', label: 'Combo', lineage: 'derived' as const },
-  { id: 'sznb', label: 'SZNB', lineage: 'direct' as const },
-  { id: 'flow_subscription', label: 'Flow Subscription', lineage: 'direct' as const },
-  { id: 'youtube', label: 'YouTube', lineage: 'direct' as const },
-  { id: 'spotify', label: 'Spotify', lineage: 'direct' as const },
-  { id: 'tiktok', label: 'TikTok', lineage: 'direct' as const },
-];
+import type { StreamConfig, StreamDef, StreamMatrix } from '@/lib/streams/types';
+import {
+  fetchStreamConfig,
+  fetchStreamMatrix,
+  lineageLines,
+  STREAM_FALLBACK_COLORS,
+} from '@/lib/streams/shared';
 
 export function StreamsView() {
+  const [config, setConfig] = useState<StreamConfig | null>(null);
   const [active, setActive] = useState('ringtune');
   const [range, setRange] = useState<TimeRangeKey>('12M');
   const [loadAll, setLoadAll] = useState(false);
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
-  const [data, setData] = useState<Record<string, unknown>[]>([]);
+  const [matrix, setMatrix] = useState<StreamMatrix | null>(null);
   const [loading, setLoading] = useState(true);
   const supabase = createClient();
 
   useEffect(() => {
+    let cancelled = false;
+    fetchStreamConfig(supabase).then((cfg) => {
+      if (cancelled) return;
+      setConfig(cfg);
+      // Default to the first tab if the current slug does not exist.
+      if (!cfg.streams.some((s) => s.slug === active && s.kind !== 'summary')) {
+        const first = cfg.streams.find((s) => s.kind !== 'summary');
+        if (first) setActive(first.slug);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (!config) return;
+    let cancelled = false;
     setLoading(true);
-    const table = active === 'flow_subscription' ? 'flow_subscription' : active;
     const fromMonth = (() => {
       const d = new Date();
       d.setMonth(d.getMonth() - 11);
       return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
     })();
-    let query = supabase.from(table).select('*').order('month', { ascending: true });
-    if (!loadAll) query = query.gte('month', fromMonth);
-    query.then(({ data: d, error }) => {
-        if (!error) setData(d ?? []);
+    fetchStreamMatrix(supabase, config, active, loadAll ? {} : { fromMonth })
+      .then((m) => {
+        if (cancelled) return;
+        setMatrix(m);
         setLoading(false);
+      })
+      .catch(() => {
+        if (!cancelled) setLoading(false);
       });
-  }, [active, loadAll, supabase]);
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, loadAll, config]);
 
-  const columns = data.length
-    ? (Object.keys(data[0] as object).filter(
-        (k) => !['sqlid', 'created_at', 'updated_at', 'month', 'Month'].includes(k) && k !== 'total'
-      ) as string[])
-    : [];
+  const tabs = useMemo(
+    () => (config?.streams ?? []).filter((s) => s.kind !== 'summary'),
+    [config]
+  );
+  const activeStream: StreamDef | undefined = tabs.find((s) => s.slug === active);
+  const columns = matrix?.columns ?? [];
+
   const filteredData = filterMonthsByRange(
-    data as Array<{ month: string }>,
+    (matrix?.rows ?? []) as Array<{ month: string }>,
     range,
     customStart ? `${customStart}-01` : undefined,
     customEnd ? `${customEnd}-01` : undefined
   ) as Record<string, unknown>[];
   const chartData = filteredData.map((r) => ({
     month: new Date((r.month as string) || '').toLocaleDateString('en-US', { month: 'short', year: '2-digit' }),
-    ...Object.fromEntries(
-      columns.map((c) => [c, Number((r[c] as number) ?? 0)])
-    ),
+    ...Object.fromEntries(columns.map((c) => [c.slug, Number((r[c.slug] as number) ?? 0)])),
   }));
 
-  const barColors = ['#00d4c8', '#3b82f6', '#8b5cf6', '#f59e0b', '#10b981', '#ef4444', '#22c55e', '#ec4899'];
-  const lineageText =
-    active === 'ringtune'
-      ? ['[MPT Sheet] -> [Ringtune MPT] -> [Ringtune Total] -> [Revenue]', '[Atom Sheet] -> [Ringtune Atom] -> [Ringtune Total]', '[Direct Entry] -> [Ringtune Ooredoo]']
-      : active === 'eauc'
-        ? ['[MPT Sheet] -> [EAUC MPT] -> [EAUC Total] -> [Revenue]', '[Atom Sheet] -> [EAUC Atom] -> [EAUC Total]']
-        : active === 'combo'
-          ? ['[MPT Sheet] -> [Combo MPT] -> [Combo Total] -> [Revenue]', '[Atom Sheet] -> [Combo Atom] -> [Combo Total]']
-          : active === 'mpt'
-            ? ['[MPT Sheet] -> [Ringtune MPT]', '[MPT Sheet] -> [EAUC MPT]', '[MPT Sheet] -> [Combo MPT]']
-            : [`[${active}] -> [Revenue]`];
+  const lineage = useMemo(
+    () => (config && activeStream ? lineageLines(config, activeStream) : []),
+    [config, activeStream]
+  );
+
+  // Streams that feed this one (derived) or that this one feeds (entry).
+  const relatedStreams = useMemo(() => {
+    if (!config || !activeStream) return [];
+    const fieldById = new Map(config.fields.map((f) => [f.id, f]));
+    const ids = new Set<string>();
+    if (activeStream.kind === 'derived') {
+      for (const link of config.links.filter((l) => l.targetStreamId === activeStream.id)) {
+        const field = fieldById.get(link.sourceFieldId);
+        if (field) ids.add(field.streamId);
+      }
+    } else {
+      for (const link of config.links) {
+        const field = fieldById.get(link.sourceFieldId);
+        if (field && field.streamId === activeStream.id) ids.add(link.targetStreamId);
+      }
+    }
+    return config.streams.filter((s) => ids.has(s.id));
+  }, [config, activeStream]);
+
+  const stacked = columns.length > 3;
+
+  if (!config) {
+    return <div className="h-64 animate-pulse rounded-xl bg-elevated" />;
+  }
 
   return (
     <div className="space-y-4">
       <div className="flex gap-1 overflow-x-auto border-b border-border pb-2.5">
-        {TABS.map((tab) => (
+        {tabs.map((tab) => (
           <button
-            key={tab.id}
+            key={tab.slug}
             type="button"
-            onClick={() => setActive(tab.id)}
+            onClick={() => setActive(tab.slug)}
             className={cn(
               'inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-2 text-caption sm:text-body font-medium transition-colors',
-              active === tab.id ? 'bg-teal/10 text-teal' : 'text-secondary hover:bg-elevated hover:text-primary'
+              active === tab.slug ? 'bg-teal/10 text-teal' : 'text-secondary hover:bg-elevated hover:text-primary'
             )}
           >
             <span
               className={cn(
                 'text-[11px] leading-none',
-                tab.lineage === 'source' && 'text-amber-400',
-                tab.lineage === 'derived' && 'text-teal',
-                tab.lineage === 'direct' && 'text-blue-300'
+                tab.kind === 'entry' ? 'text-amber-400' : 'text-teal'
               )}
               aria-hidden
             >
-              {tab.lineage === 'source' && '◈'}
-              {tab.lineage === 'derived' && '⟵'}
-              {tab.lineage === 'direct' && '✎'}
+              {tab.kind === 'entry' ? '✎' : '⟵'}
             </span>
-            {tab.label}
+            {tab.name}
           </button>
         ))}
       </div>
       <div className="rounded-lg border border-border bg-elevated p-3">
         <p className="mb-2 text-caption text-secondary">Data Lineage</p>
         <div className="flex flex-wrap gap-2">
-          {lineageText.map((line) => (
+          {lineage.map((line) => (
             <span key={line} className="rounded-full border border-border px-2 py-1 text-[11px] leading-none text-secondary">
               {line}
             </span>
           ))}
         </div>
-        {active === 'mpt' && (
-          <div className="mt-3 flex gap-2 text-caption">
-            <span className="text-secondary">MPT data populates:</span>
-            <button type="button" className="text-teal underline" onClick={() => setActive('ringtune')}>Ringtune (MPT)</button>
-            <button type="button" className="text-teal underline" onClick={() => setActive('eauc')}>EAUC (MPT)</button>
-            <button type="button" className="text-teal underline" onClick={() => setActive('combo')}>Combo (MPT)</button>
+        {relatedStreams.length > 0 && (
+          <div className="mt-3 flex flex-wrap items-center gap-2 text-caption">
+            <span className="text-secondary">
+              {activeStream?.kind === 'derived' ? 'Computed from:' : 'Also counts toward:'}
+            </span>
+            {relatedStreams.map((s) => (
+              <button key={s.slug} type="button" className="text-teal underline" onClick={() => setActive(s.slug)}>
+                {s.name}
+              </button>
+            ))}
           </div>
         )}
       </div>
@@ -159,11 +197,11 @@ export function StreamsView() {
                   <Legend />
                   {columns.map((c, i) => (
                     <Bar
-                      key={c}
-                      dataKey={c}
-                      name={formatStreamLabel(c)}
-                      fill={barColors[i % barColors.length]}
-                      stackId={active === 'sznb' || active === 'mpt' ? 'stack' : undefined}
+                      key={c.slug}
+                      dataKey={c.slug}
+                      name={c.label}
+                      fill={STREAM_FALLBACK_COLORS[i % STREAM_FALLBACK_COLORS.length]}
+                      stackId={stacked ? 'stack' : undefined}
                     />
                   ))}
                   {chartData.length > 18 && <Brush dataKey="month" height={16} stroke="#00d4c8" travellerWidth={8} />}
@@ -177,16 +215,15 @@ export function StreamsView() {
                 <tr className="border-b border-border">
                   <th className="p-3 font-medium text-secondary">Month</th>
                   {columns.map((c) => (
-                    <th key={c} className="p-3 font-medium text-secondary">
-                      {formatStreamLabel(c)}
+                    <th key={c.slug} className="p-3 font-medium text-secondary">
+                      {c.label}
                     </th>
                   ))}
-                  {(active === 'ringtune' || active === 'eauc' || active === 'combo') && <th className="p-3 font-medium text-secondary">Source</th>}
                   <th className="p-3 font-medium text-secondary">Total</th>
                 </tr>
               </thead>
               <tbody>
-                {(filteredData as Record<string, unknown>[]).map((row, i) => (
+                {filteredData.map((row, i) => (
                   <tr key={i} className="border-b border-border last:border-0">
                     <td className="p-3 text-primary">
                       {new Date((row.month as string) || '').toLocaleDateString('en-US', {
@@ -195,34 +232,16 @@ export function StreamsView() {
                       })}
                     </td>
                     {columns.map((c) => (
-                      <td key={c} className="p-3 text-primary">
-                        {formatMMK(row[c] as number)}
+                      <td key={c.slug} className="p-3 text-primary">
+                        {formatMMK(row[c.slug] as number)}
                       </td>
                     ))}
-                    {(active === 'ringtune' || active === 'eauc' || active === 'combo') && (
-                      <td className="p-3">
-                        <div className="flex flex-wrap gap-1 text-micro">
-                          <button type="button" onClick={() => setActive('mpt')} className="rounded bg-amber-500/15 px-2 py-0.5 text-amber-500">
-                            ← MPT Sheet
-                          </button>
-                          <button type="button" onClick={() => setActive('atom')} className="rounded bg-amber-500/15 px-2 py-0.5 text-amber-500">
-                            ← Atom Sheet
-                          </button>
-                          {active === 'ringtune' && <span className="rounded bg-blue-500/15 px-2 py-0.5 text-blue-300">Direct Entry</span>}
-                        </div>
-                      </td>
-                    )}
                     <td className="p-3 font-medium text-teal">{formatMMK(row.total as number)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-          {active === 'tiktok' && (
-            <p className="text-body text-amber-500">
-              Months with missing data are highlighted in amber in the table (if any).
-            </p>
-          )}
         </>
       )}
     </div>

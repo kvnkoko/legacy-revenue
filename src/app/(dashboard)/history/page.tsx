@@ -21,7 +21,7 @@ function monthRange(start: string, end: string): string[] {
 
 export default async function HistoryPage() {
   const supabase = await createClient();
-  const { data: rows } = await supabase.from('revenue_summary').select('*').order('month', { ascending: true });
+  const { data: rows } = await supabase.from('v_revenue_summary_compat').select('*').order('month', { ascending: true });
   const historyRows = (rows ?? []).map((m) => ({
     month: m.month as string,
     ringtune: Number(m.ringtune ?? 0),

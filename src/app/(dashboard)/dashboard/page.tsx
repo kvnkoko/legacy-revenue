@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server';
+import { getStreamTotals } from '@/lib/streams/server';
 import { formatPercent, formatStreamLabel, STREAM_COLORS } from '@/lib/utils';
 import { FormattedCurrency } from '@/components/ui/FormattedCurrency';
 import { RevenueTrendChart } from '@/components/dashboard/RevenueTrendChart';
@@ -39,16 +40,14 @@ export default async function DashboardPage({
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
   })();
   const summaryQuery = supabase
-    .from('revenue_summary')
+    .from('v_revenue_summary_compat')
     .select('*')
     .order('month', { ascending: true });
   if (!loadAll) summaryQuery.gte('month', fromMonth);
-  const [{ data: summary }, { data: summaryAll }, { data: mptRows }, { data: atomRows }, { data: ringtuneRows }] = await Promise.all([
+  const [{ data: summary }, { data: summaryAll }, streamTotals] = await Promise.all([
     summaryQuery,
-    supabase.from('revenue_summary').select('*').order('month', { ascending: true }),
-    supabase.from('mpt').select('*').order('month', { ascending: true }),
-    supabase.from('atom').select('*').order('month', { ascending: true }),
-    supabase.from('ringtune').select('*').order('month', { ascending: true }),
+    supabase.from('v_revenue_summary_compat').select('*').order('month', { ascending: true }),
+    getStreamTotals(),
   ]);
 
   const months = summary ?? [];
@@ -108,28 +107,15 @@ export default async function DashboardPage({
   const currentCalendarMonth = monthKey(new Date());
   const hasCurrentData = existingSet.has(currentCalendarMonth);
 
-  const mptCurrent = mptRows?.find((r) => r.month === latestRecordedMonth?.month);
-  const atomCurrent = atomRows?.find((r) => r.month === latestRecordedMonth?.month);
-  const ringtuneCurrent = ringtuneRows?.find((r) => r.month === latestRecordedMonth?.month);
+  const latestMonthKey = latestRecordedMonth ? String(latestRecordedMonth.month) : '';
+  const totalFor = (slug: string) => Number(streamTotals[slug]?.[latestMonthKey] ?? 0);
   const directCurrent =
     Number(latestRecordedMonth?.sznb ?? 0) +
     Number(latestRecordedMonth?.flow_subscription ?? 0) +
     Number(latestRecordedMonth?.youtube ?? 0) +
     Number(latestRecordedMonth?.spotify ?? 0) +
     Number(latestRecordedMonth?.tiktok ?? 0);
-  const mptTotal =
-    Number(mptCurrent?.legacy_ringtune ?? 0) +
-    Number(mptCurrent?.legacy_eauc ?? 0) +
-    Number(mptCurrent?.legacy_combo ?? 0) +
-    Number(mptCurrent?.etrade_ringtune ?? 0) +
-    Number(mptCurrent?.etrade_eauc ?? 0) +
-    Number(mptCurrent?.etrade_combo ?? 0) +
-    Number(mptCurrent?.fortune_ringtune ?? 0) +
-    Number(mptCurrent?.fortune_eauc ?? 0) +
-    Number(mptCurrent?.fortune_combo ?? 0) +
-    Number(mptCurrent?.unico_ringtune ?? 0) +
-    Number(mptCurrent?.unico_eauc ?? 0) +
-    Number(mptCurrent?.unico_combo ?? 0);
+  const mptTotal = totalFor('mpt');
 
   return (
     <div className="space-y-6">
@@ -212,8 +198,8 @@ export default async function DashboardPage({
       <RevenueArchitectureDiagram
         values={{
           mpt: mptTotal,
-          atom: Number(atomCurrent?.total ?? 0),
-          ooredoo: Number(ringtuneCurrent?.ooredoo ?? 0),
+          atom: totalFor('atom'),
+          ooredoo: totalFor('ooredoo'),
           direct: directCurrent,
           ringtune: Number(latestRecordedMonth?.ringtune ?? 0),
           eauc: Number(latestRecordedMonth?.eauc ?? 0),

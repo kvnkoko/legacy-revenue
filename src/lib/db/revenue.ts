@@ -18,10 +18,13 @@ export type RevenueSummaryRow = {
   updated_at: string;
 };
 
+// Reads come from v_revenue_summary_compat — a view over the config-driven
+// fact table (revenue_entries) that is shape-identical to the frozen legacy
+// revenue_summary table. See supabase/migrations/015_backfill_and_views.sql.
 export async function getRevenueSummary() {
   const supabase = await createClient();
   const { data, error } = await supabase
-    .from('revenue_summary')
+    .from('v_revenue_summary_compat')
     .select('*')
     .order('month', { ascending: true });
   if (error) throw error;
@@ -31,7 +34,7 @@ export async function getRevenueSummary() {
 export async function getRevenueSummaryForMonth(month: string) {
   const supabase = await createClient();
   const { data, error } = await supabase
-    .from('revenue_summary')
+    .from('v_revenue_summary_compat')
     .select('*')
     .eq('month', month)
     .single();

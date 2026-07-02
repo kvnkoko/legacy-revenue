@@ -32,7 +32,7 @@ export function Sidebar({
   const supabase = createClient();
 
   useEffect(() => {
-    supabase.from('revenue_summary').select('month').order('month', { ascending: true }).then(({ data }) => {
+    supabase.from('v_revenue_summary_compat').select('month').order('month', { ascending: true }).then(({ data }) => {
       setMonths((data ?? []).map((m) => m.month as string));
     });
   }, [supabase]);
