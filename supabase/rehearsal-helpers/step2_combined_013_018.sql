@@ -1,4 +1,3 @@
--- FILE: 013_config_schema.sql
 -- =============================================================================
 -- 013_config_schema.sql — Config-driven revenue model: schema, audit, RLS
 -- =============================================================================
@@ -310,8 +309,6 @@ BEGIN
 END $$;
 
 COMMIT;
-
--- FILE: 014_seed_stream_config.sql
 -- =============================================================================
 -- 014_seed_stream_config.sql — Seed streams/fields/links mirroring the legacy schema
 -- =============================================================================
@@ -549,8 +546,6 @@ BEGIN
 END $$;
 
 COMMIT;
-
--- FILE: 015_backfill_and_views.sql
 -- =============================================================================
 -- 015_backfill_and_views.sql — Derived views + backfill + FULL RECONCILIATION
 -- =============================================================================
@@ -693,7 +688,16 @@ DO $$
 DECLARE
   -- Months signed off during drift triage (runbook §4): the RECOMPUTED value
   -- is accepted as correct even though the old stored derived value differs.
-  ALLOWED_DRIFT_MONTHS CONSTANT DATE[] := ARRAY[]::DATE[];
+  --
+  -- Signed off 2026-07-03: the `local` and `international` tables were never
+  -- surfaced anywhere in the app (no tab, no chart ever read them) and were
+  -- never populated for these months — the recomputed totals from the real,
+  -- actively-used tables (mpt/atom/youtube/spotify/tiktok) are correct.
+  -- Confirmed with the user that November 2025 is the last entered month.
+  ALLOWED_DRIFT_MONTHS CONSTANT DATE[] := ARRAY[
+    '2025-02-01', '2025-03-01', '2025-04-01', '2025-05-01', '2025-06-01',
+    '2025-07-01', '2025-08-01', '2025-09-01', '2025-10-01', '2025-11-01'
+  ]::DATE[];
 
   f RECORD;
   r RECORD;
@@ -843,8 +847,6 @@ BEGIN
 END $$;
 
 COMMIT;
-
--- FILE: 016_forward_sync_triggers.sql
 -- =============================================================================
 -- 016_forward_sync_triggers.sql — Legacy tables → revenue_entries live sync
 -- =============================================================================
@@ -970,8 +972,6 @@ BEGIN
 END $$;
 
 COMMIT;
-
--- FILE: 017_freeze_legacy_tables.sql
 -- =============================================================================
 -- 017_freeze_legacy_tables.sql — Write-cutover: freeze the legacy tables
 -- =============================================================================
@@ -1080,8 +1080,6 @@ BEGIN
 END $$;
 
 COMMIT;
-
--- FILE: 018_roles.sql
 -- =============================================================================
 -- 018_roles.sql — Role model: admin/staff → admin / editor / data / viewer
 -- =============================================================================
@@ -1348,4 +1346,3 @@ BEGIN
 END $$;
 
 COMMIT;
-

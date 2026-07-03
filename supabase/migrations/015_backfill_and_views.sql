@@ -140,7 +140,16 @@ DO $$
 DECLARE
   -- Months signed off during drift triage (runbook §4): the RECOMPUTED value
   -- is accepted as correct even though the old stored derived value differs.
-  ALLOWED_DRIFT_MONTHS CONSTANT DATE[] := ARRAY[]::DATE[];
+  --
+  -- Signed off 2026-07-03: the `local` and `international` tables were never
+  -- surfaced anywhere in the app (no tab, no chart ever read them) and were
+  -- never populated for these months — the recomputed totals from the real,
+  -- actively-used tables (mpt/atom/youtube/spotify/tiktok) are correct.
+  -- Confirmed with the user that November 2025 is the last entered month.
+  ALLOWED_DRIFT_MONTHS CONSTANT DATE[] := ARRAY[
+    '2025-02-01', '2025-03-01', '2025-04-01', '2025-05-01', '2025-06-01',
+    '2025-07-01', '2025-08-01', '2025-09-01', '2025-10-01', '2025-11-01'
+  ]::DATE[];
 
   f RECORD;
   r RECORD;

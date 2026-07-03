@@ -183,7 +183,7 @@ warns on mismatch instead of writing them. Base sheets (`MPT`, `Atom`, `SZNB`,
 
 | Date | Script | Environment | Operator | Result / notes |
 |---|---|---|---|---|
-| | | | | |
+| 2026-07-03 | 000_drift_audit.sql | Production | Kevin | 10 months (Feb–Nov 2025) with local/international drift — signed off as (b), recomputed value accepted; see ALLOWED_DRIFT_MONTHS in 015. flow_music_zone/flow_data_pack rows are the expected non-drift special case. Confirmed Nov 2025 is the last entered month. |
 
 ---
 
