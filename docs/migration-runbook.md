@@ -32,6 +32,14 @@ bottom of the results panel) looks correct.
 | — | *(deploy Phase 4 app)* | 4 | | |
 | G | `supabase/migrations/018_roles.sql` | 4 | admin/staff → admin/editor/data/viewer, effective access preserved | Yes |
 
+> **018 ordering note:** run 018 only after at least one user exists (production
+> always qualifies). On a brand-new empty project its safety check used to
+> abort — fixed to tolerate zero-user databases, but signing up the first
+> admin before running 018 remains the cleanest order on fresh installs.
+>
+> **Paste-ready bundles** for the SQL Editor live in
+> `supabase/rehearsal-helpers/` (production_step1…step5 + rehearsal fix).
+
 Rollback scripts (pre-written, rehearse them too): `016_rollback.sql`,
 `017_rollback.sql`, `018_rollback.sql` in `supabase/migrations/`.
 

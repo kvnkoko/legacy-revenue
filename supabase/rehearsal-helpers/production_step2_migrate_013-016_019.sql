@@ -1,4 +1,3 @@
--- FILE: 013_config_schema.sql
 -- =============================================================================
 -- 013_config_schema.sql — Config-driven revenue model: schema, audit, RLS
 -- =============================================================================
@@ -310,8 +309,6 @@ BEGIN
 END $$;
 
 COMMIT;
-
--- FILE: 014_seed_stream_config.sql
 -- =============================================================================
 -- 014_seed_stream_config.sql — Seed streams/fields/links mirroring the legacy schema
 -- =============================================================================
@@ -549,8 +546,6 @@ BEGIN
 END $$;
 
 COMMIT;
-
--- FILE: 015_backfill_and_views.sql
 -- =============================================================================
 -- 015_backfill_and_views.sql — Derived views + backfill + FULL RECONCILIATION
 -- =============================================================================
@@ -843,8 +838,6 @@ BEGIN
 END $$;
 
 COMMIT;
-
--- FILE: 016_forward_sync_triggers.sql
 -- =============================================================================
 -- 016_forward_sync_triggers.sql — Legacy tables → revenue_entries live sync
 -- =============================================================================
@@ -970,382 +963,34 @@ BEGIN
 END $$;
 
 COMMIT;
-
--- FILE: 017_freeze_legacy_tables.sql
 -- =============================================================================
--- 017_freeze_legacy_tables.sql — Write-cutover: freeze the legacy tables
+-- 019_gold_palette.sql — Legacy gold brand: update the flagship stream color
 -- =============================================================================
--- Run IMMEDIATELY AFTER deploying the Phase 3 app build and smoke-testing it
--- (runbook §5). From this point:
---   * revenue_entries is the only writable revenue store,
---   * legacy tables stay SELECT-able (historical reference) but reject writes,
---   * the legacy lineage triggers (003) and forward-sync triggers (016) are
---     removed (trigger functions are kept so 017_rollback.sql can restore).
+-- The app theme moved from teal to Legacy gold (#D4AF37). Stream colors are
+-- config data; Ringtune (the flagship stream) carried the old teal brand color
+-- and now carries the gold one. Other stream colors are categorical data-viz
+-- colors and are intentionally unchanged. Editors can adjust any of them later
+-- in /admin/streams.
 --
--- audit_log is untouched. Idempotent. Transactional. Self-verifying.
+-- Idempotent. Audited automatically by the config-table audit triggers.
 -- =============================================================================
 
 BEGIN;
 
+UPDATE public.revenue_streams
+SET color = '#d4af37'
+WHERE slug = 'ringtune' AND color = '#00d4c8';
+
 DO $$
 DECLARE
-  tbl TEXT;
-  pol RECORD;
-  legacy_tables TEXT[] := ARRAY[
-    'revenue_summary', 'ringtune', 'mpt', 'atom', 'eauc', 'combo', 'local',
-    'sznb', 'flow_subscription', 'international', 'youtube', 'spotify', 'tiktok'
-  ];
+  c TEXT;
 BEGIN
-  -- 1. Remove lineage triggers (003) and forward-sync triggers (016).
-  --    Functions are intentionally kept for 017_rollback.sql.
-  DROP TRIGGER IF EXISTS mpt_sync_telecom_trigger ON public.mpt;
-  DROP TRIGGER IF EXISTS atom_sync_telecom_trigger ON public.atom;
-  DROP TRIGGER IF EXISTS ringtune_sync_revenue_trigger ON public.ringtune;
-  DROP TRIGGER IF EXISTS eauc_sync_revenue_trigger ON public.eauc;
-  DROP TRIGGER IF EXISTS combo_sync_revenue_trigger ON public.combo;
-  DROP TRIGGER IF EXISTS sznb_sync_revenue_trigger ON public.sznb;
-  DROP TRIGGER IF EXISTS flow_subscription_sync_revenue_trigger ON public.flow_subscription;
-  DROP TRIGGER IF EXISTS youtube_sync_revenue_trigger ON public.youtube;
-  DROP TRIGGER IF EXISTS spotify_sync_revenue_trigger ON public.spotify;
-  DROP TRIGGER IF EXISTS tiktok_sync_revenue_trigger ON public.tiktok;
-
-  FOREACH tbl IN ARRAY legacy_tables LOOP
-    EXECUTE format('DROP TRIGGER IF EXISTS forward_sync_to_entries ON public.%I', tbl);
-  END LOOP;
-
-  -- 2. Drop every INSERT/UPDATE/DELETE/ALL policy on the legacy tables
-  --    (SELECT policies stay so history remains readable under RBAC).
-  FOREACH tbl IN ARRAY legacy_tables LOOP
-    FOR pol IN
-      SELECT policyname, cmd FROM pg_policies
-      WHERE schemaname = 'public' AND tablename = tbl AND cmd <> 'SELECT'
-    LOOP
-      EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', pol.policyname, tbl);
-    END LOOP;
-
-    -- 3. Silence the legacy audit triggers (no writes can occur anyway) and
-    --    mark the table as frozen.
-    EXECUTE format('ALTER TABLE public.%I DISABLE TRIGGER audit_trigger', tbl);
-    EXECUTE format(
-      'COMMENT ON TABLE public.%I IS %L',
-      tbl,
-      'FROZEN ' || NOW()::date || ': superseded by revenue_entries (config-driven model). '
-        || 'Read-only historical reference. Decommission per docs/migration-runbook.md §9.'
-    );
-  END LOOP;
-
-  -- 4. Record the freeze moment for 017_rollback.sql reverse-sync.
-  INSERT INTO public.app_settings (key, value)
-  VALUES ('legacy_freeze', jsonb_build_object('frozen_at', NOW()))
-  ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW();
-END $$;
-
--- ============ VERIFICATION (RAISE = rollback) ===============================
-DO $$
-DECLARE
-  n INT;
-  r RECORD;
-  legacy_tables TEXT[] := ARRAY[
-    'revenue_summary', 'ringtune', 'mpt', 'atom', 'eauc', 'combo', 'local',
-    'sznb', 'flow_subscription', 'international', 'youtube', 'spotify', 'tiktok'
-  ];
-BEGIN
-  SELECT COUNT(*) INTO n FROM pg_policies
-  WHERE schemaname = 'public' AND tablename = ANY(legacy_tables) AND cmd <> 'SELECT';
-  IF n <> 0 THEN
-    RAISE EXCEPTION '017 verification failed: % write policies remain on legacy tables', n;
+  SELECT color INTO c FROM public.revenue_streams WHERE slug = 'ringtune';
+  IF c IS DISTINCT FROM '#d4af37' THEN
+    RAISE NOTICE '019: ringtune color is % (not the seeded teal) — left untouched, likely customized in the UI.', c;
+  ELSE
+    RAISE NOTICE '019 OK: ringtune now wears Legacy gold.';
   END IF;
-
-  SELECT COUNT(*) INTO n FROM pg_trigger t
-  JOIN pg_class c ON c.oid = t.tgrelid
-  WHERE NOT t.tgisinternal
-    AND c.relname = ANY(legacy_tables)
-    AND (t.tgname = 'forward_sync_to_entries' OR t.tgname LIKE '%sync%trigger');
-  IF n <> 0 THEN
-    RAISE EXCEPTION '017 verification failed: % lineage/sync triggers remain', n;
-  END IF;
-
-  -- Informational old-vs-new report (divergence AFTER the app deploy is
-  -- expected — new writes only land in revenue_entries).
-  FOR r IN
-    SELECT c.month, ABS(c.total - COALESCE(o.total, 0)) AS diff
-    FROM public.v_revenue_summary_compat c
-    FULL JOIN public.revenue_summary o ON o.month = c.month
-    WHERE ABS(COALESCE(c.total, 0) - COALESCE(o.total, 0)) > 0.01
-  LOOP
-    RAISE NOTICE '017 info: month % differs from frozen legacy total by % (expected if written after deploy)', r.month, r.diff;
-  END LOOP;
-
-  RAISE NOTICE '017 OK: 13 legacy tables frozen (read-only), lineage + forward-sync triggers removed.';
 END $$;
 
 COMMIT;
-
--- FILE: 018_roles.sql
--- =============================================================================
--- 018_roles.sql — Role model: admin/staff → admin / editor / data / viewer
--- =============================================================================
--- Adds the can_configure_streams permission (Editors manage stream config).
---
--- ACCESS-PARITY GUARANTEE: every existing user keeps their exact effective
--- permissions on all 15 pre-existing keys — the migration snapshots effective
--- permissions BEFORE any change and the verification block aborts if any user's
--- access changed. The only new grant is can_configure_streams for admins and
--- editors (the intended feature rollout).
---
--- Role mapping for existing 'staff' users (by old EFFECTIVE permissions):
---   can_edit_data OR can_delete_data OR can_manage_settings → editor
---   else can_enter_data OR can_import_excel                 → data
---   else                                                    → viewer
---
--- DEPLOY ORDER: deploy the Phase 4 app build first (it accepts both old and
--- new role strings), then run this. Rollback: 018_rollback.sql.
--- Idempotent. Transactional. Self-verifying.
--- =============================================================================
-
-BEGIN;
-
--- ============ 1. Snapshot (rollback + parity baseline) ======================
-CREATE TABLE IF NOT EXISTS public.rbac_migration_backup (
-  user_id UUID PRIMARY KEY,
-  old_role TEXT NOT NULL,
-  old_permissions JSONB,
-  old_effective JSONB NOT NULL,
-  migrated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-ALTER TABLE public.rbac_migration_backup ENABLE ROW LEVEL SECURITY;
--- No policies: service role / SQL editor only.
-
-INSERT INTO public.rbac_migration_backup (user_id, old_role, old_permissions, old_effective)
-SELECT id, role, permissions, public.rbac_effective_permissions(role, permissions)
-FROM public.user_profiles
-ON CONFLICT (user_id) DO NOTHING;  -- keep the FIRST snapshot on re-run
-
--- ============ 2. Replace RBAC functions (BEFORE any role update, so the =====
--- ============    guard trigger understands the new roles) ==================
-
-CREATE OR REPLACE FUNCTION public.rbac_role_default_permissions(r TEXT)
-RETURNS JSONB
-LANGUAGE sql
-IMMUTABLE
-AS $$
-  SELECT CASE r
-    WHEN 'admin' THEN '{
-      "can_enter_data": true, "can_edit_data": true, "can_delete_data": true,
-      "can_import_excel": true, "can_export_data": true,
-      "can_view_analytics": true, "can_view_streams": true,
-      "can_view_audit_log": true, "can_manage_users": true,
-      "can_manage_settings": true, "can_configure_streams": true,
-      "can_view_mpt_detail": true, "can_view_sznb": true,
-      "can_view_international": true, "can_view_telecom": true, "can_view_flow": true
-    }'::jsonb
-    WHEN 'editor' THEN '{
-      "can_enter_data": true, "can_edit_data": true, "can_delete_data": true,
-      "can_import_excel": true, "can_export_data": true,
-      "can_view_analytics": true, "can_view_streams": true,
-      "can_view_audit_log": true, "can_manage_users": false,
-      "can_manage_settings": false, "can_configure_streams": true,
-      "can_view_mpt_detail": true, "can_view_sznb": true,
-      "can_view_international": true, "can_view_telecom": true, "can_view_flow": true
-    }'::jsonb
-    WHEN 'data' THEN '{
-      "can_enter_data": true, "can_edit_data": false, "can_delete_data": false,
-      "can_import_excel": true, "can_export_data": true,
-      "can_view_analytics": true, "can_view_streams": true,
-      "can_view_audit_log": false, "can_manage_users": false,
-      "can_manage_settings": false, "can_configure_streams": false,
-      "can_view_mpt_detail": true, "can_view_sznb": true,
-      "can_view_international": true, "can_view_telecom": true, "can_view_flow": true
-    }'::jsonb
-    ELSE '{
-      "can_enter_data": false, "can_edit_data": false, "can_delete_data": false,
-      "can_import_excel": false, "can_export_data": true,
-      "can_view_analytics": true, "can_view_streams": true,
-      "can_view_audit_log": false, "can_manage_users": false,
-      "can_manage_settings": false, "can_configure_streams": false,
-      "can_view_mpt_detail": true, "can_view_sznb": true,
-      "can_view_international": true, "can_view_telecom": true, "can_view_flow": true
-    }'::jsonb  -- viewer (and legacy 'staff' during the transition window)
-  END;
-$$;
-
--- Keep old function names working (013 policies, app fallbacks).
-CREATE OR REPLACE FUNCTION public.rbac_admin_permissions()
-RETURNS JSONB LANGUAGE sql IMMUTABLE AS $$
-  SELECT public.rbac_role_default_permissions('admin');
-$$;
-
-CREATE OR REPLACE FUNCTION public.rbac_staff_default_permissions()
-RETURNS JSONB LANGUAGE sql IMMUTABLE AS $$
-  SELECT public.rbac_role_default_permissions('viewer');
-$$;
-
--- Same signature as before: RLS policies (auth_user_can) keep working.
-CREATE OR REPLACE FUNCTION public.rbac_effective_permissions(profile_role TEXT, profile_permissions JSONB)
-RETURNS JSONB
-LANGUAGE sql
-STABLE
-AS $$
-  SELECT CASE
-    WHEN profile_role = 'admin' THEN public.rbac_role_default_permissions('admin')
-    ELSE public.rbac_role_default_permissions(profile_role) || COALESCE(profile_permissions, '{}'::jsonb)
-  END;
-$$;
-
-CREATE OR REPLACE FUNCTION public.rbac_apply_profile_guards()
-RETURNS TRIGGER AS $$
-DECLARE
-  admin_count INTEGER;
-BEGIN
-  IF TG_OP = 'DELETE' THEN
-    IF OLD.role = 'admin' THEN
-      SELECT COUNT(*) INTO admin_count
-      FROM public.user_profiles
-      WHERE role = 'admin' AND id <> OLD.id;
-      IF admin_count = 0 THEN
-        RAISE EXCEPTION 'Cannot delete the last admin user';
-      END IF;
-    END IF;
-    RETURN OLD;
-  END IF;
-
-  NEW.permissions = public.rbac_effective_permissions(NEW.role, NEW.permissions);
-
-  IF TG_OP = 'UPDATE' AND OLD.role = 'admin' AND NEW.role <> 'admin' THEN
-    SELECT COUNT(*) INTO admin_count
-    FROM public.user_profiles
-    WHERE role = 'admin' AND id <> OLD.id;
-    IF admin_count = 0 THEN
-      RAISE EXCEPTION 'Cannot demote the last admin user';
-    END IF;
-  END IF;
-
-  NEW.updated_at = NOW();
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
--- New signups: first user = admin/active, everyone else = viewer/pending.
-CREATE OR REPLACE FUNCTION public.handle_new_user()
-RETURNS TRIGGER AS $$
-DECLARE
-  has_admin BOOLEAN;
-  next_role TEXT;
-BEGIN
-  SELECT EXISTS(SELECT 1 FROM public.user_profiles WHERE role = 'admin') INTO has_admin;
-  next_role := CASE WHEN has_admin THEN 'viewer' ELSE 'admin' END;
-
-  INSERT INTO public.user_profiles (
-    id, email, full_name, display_name, role, permissions, status, invited_at
-  ) VALUES (
-    NEW.id,
-    NEW.email,
-    COALESCE(NULLIF(NEW.raw_user_meta_data->>'full_name', ''), NEW.email),
-    NULLIF(NEW.raw_user_meta_data->>'username', ''),
-    next_role,
-    public.rbac_role_default_permissions(next_role),
-    CASE WHEN next_role = 'admin' THEN 'active' ELSE 'pending' END,
-    NOW()
-  )
-  ON CONFLICT (id) DO UPDATE SET email = EXCLUDED.email;
-
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
--- ============ 3. Role mapping (parity-preserving) ===========================
-ALTER TABLE public.user_profiles DROP CONSTRAINT IF EXISTS user_profiles_role_check;
-
--- Setting permissions to the old EFFECTIVE map keeps every old key exactly as
--- it was (the guard trigger merges role defaults || provided map, and the
--- provided map is complete for the 15 old keys). can_configure_streams is not
--- in the old map, so it comes from the new role defaults.
-UPDATE public.user_profiles p
-SET role = CASE
-      WHEN b.old_role = 'admin' THEN 'admin'
-      WHEN COALESCE((b.old_effective->>'can_edit_data')::boolean, FALSE)
-        OR COALESCE((b.old_effective->>'can_delete_data')::boolean, FALSE)
-        OR COALESCE((b.old_effective->>'can_manage_settings')::boolean, FALSE) THEN 'editor'
-      WHEN COALESCE((b.old_effective->>'can_enter_data')::boolean, FALSE)
-        OR COALESCE((b.old_effective->>'can_import_excel')::boolean, FALSE) THEN 'data'
-      ELSE 'viewer'
-    END,
-    permissions = b.old_effective
-FROM public.rbac_migration_backup b
-WHERE p.id = b.user_id;
-
-ALTER TABLE public.user_profiles
-  ADD CONSTRAINT user_profiles_role_check CHECK (role IN ('admin', 'editor', 'data', 'viewer'));
-
--- Pending invites: map legacy 'staff' invites to viewer semantics but keep
--- their explicit permissions JSONB (applied at signup).
-ALTER TABLE public.invited_emails DROP CONSTRAINT IF EXISTS invited_emails_role_check;
-UPDATE public.invited_emails SET role = 'viewer' WHERE role = 'staff';
-ALTER TABLE public.invited_emails
-  ADD CONSTRAINT invited_emails_role_check CHECK (role IN ('admin', 'editor', 'data', 'viewer'));
-
--- Admin Settings default-permissions blob learns the new key.
-UPDATE public.app_settings
-SET value = jsonb_set(value, '{default_permissions,can_configure_streams}', 'false'::jsonb)
-WHERE key = 'permissions' AND value ? 'default_permissions';
-
--- ============ VERIFICATION (RAISE = rollback) ===============================
-DO $$
-DECLARE
-  old_keys TEXT[] := ARRAY[
-    'can_enter_data','can_edit_data','can_delete_data','can_import_excel',
-    'can_export_data','can_view_analytics','can_view_streams','can_view_audit_log',
-    'can_manage_users','can_manage_settings','can_view_mpt_detail','can_view_sznb',
-    'can_view_international','can_view_telecom','can_view_flow'
-  ];
-  r RECORD;
-  k TEXT;
-  old_v BOOLEAN;
-  new_v BOOLEAN;
-  n INT;
-  admins_before INT;
-  admins_after INT;
-  dist TEXT;
-BEGIN
-  -- All roles valid
-  SELECT COUNT(*) INTO n FROM public.user_profiles
-  WHERE role NOT IN ('admin', 'editor', 'data', 'viewer');
-  IF n <> 0 THEN
-    RAISE EXCEPTION '018 verification failed: % profiles with invalid role', n;
-  END IF;
-
-  -- Admin count unchanged, and >= 1 whenever any profiles exist.
-  -- (On a completely fresh database with zero users — e.g. a rehearsal project
-  -- migrated before anyone signs up — there is legitimately no admin yet; the
-  -- first signup becomes admin via handle_new_user.)
-  SELECT COUNT(*) INTO admins_before FROM public.rbac_migration_backup WHERE old_role = 'admin';
-  SELECT COUNT(*) INTO admins_after FROM public.user_profiles WHERE role = 'admin';
-  IF admins_after <> admins_before
-     OR (admins_after < 1 AND EXISTS (SELECT 1 FROM public.user_profiles)) THEN
-    RAISE EXCEPTION '018 verification failed: admin count changed (% -> %)', admins_before, admins_after;
-  END IF;
-
-  -- Per-user, per-key effective-access parity on all 15 pre-existing keys
-  FOR r IN
-    SELECT b.user_id, b.old_effective,
-           public.rbac_effective_permissions(p.role, p.permissions) AS new_effective,
-           p.email
-    FROM public.rbac_migration_backup b
-    JOIN public.user_profiles p ON p.id = b.user_id
-  LOOP
-    FOREACH k IN ARRAY old_keys LOOP
-      old_v := COALESCE((r.old_effective->>k)::boolean, FALSE);
-      new_v := COALESCE((r.new_effective->>k)::boolean, FALSE);
-      IF old_v IS DISTINCT FROM new_v THEN
-        RAISE EXCEPTION '018 verification failed: user % key % changed % -> %', r.email, k, old_v, new_v;
-      END IF;
-    END LOOP;
-  END LOOP;
-
-  SELECT string_agg(role || '=' || cnt, ', ') INTO dist
-  FROM (SELECT role, COUNT(*) AS cnt FROM public.user_profiles GROUP BY role ORDER BY role) t;
-  RAISE NOTICE '018 OK: roles migrated with effective-access parity. Distribution: %', dist;
-END $$;
-
-COMMIT;
-
