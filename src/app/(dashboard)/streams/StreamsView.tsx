@@ -131,24 +131,37 @@ export function StreamsView() {
             onClick={() => setActive(tab.slug)}
             className={cn(
               'inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-2 text-caption sm:text-body font-medium transition-colors',
-              active === tab.slug ? 'bg-teal/10 text-teal' : 'text-secondary hover:bg-elevated hover:text-primary'
+              active === tab.slug ? 'bg-gold/10 text-gold' : 'text-secondary hover:bg-elevated hover:text-primary'
             )}
           >
+            {tab.name}
             <span
               className={cn(
-                'text-[11px] leading-none',
-                tab.kind === 'entry' ? 'text-amber-400' : 'text-teal'
+                'rounded px-1 py-0.5 text-[10px] font-semibold uppercase leading-none tracking-wide',
+                tab.kind === 'entry' ? 'bg-amber-500/15 text-amber-400' : 'bg-gold/15 text-gold'
               )}
-              aria-hidden
             >
-              {tab.kind === 'entry' ? '✎' : '⟵'}
+              {tab.kind === 'entry' ? 'entered' : 'auto'}
             </span>
-            {tab.name}
           </button>
         ))}
       </div>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-micro text-secondary">
+        <span>
+          <span className="mr-1 rounded bg-amber-500/15 px-1 py-0.5 font-semibold uppercase text-amber-400">entered</span>
+          numbers your team types in or imports
+        </span>
+        <span>
+          <span className="mr-1 rounded bg-gold/15 px-1 py-0.5 font-semibold uppercase text-gold">auto</span>
+          calculated automatically from entered streams — never edited directly
+        </span>
+      </div>
       <div className="rounded-lg border border-border bg-elevated p-3">
-        <p className="mb-2 text-caption text-secondary">Data Lineage</p>
+        <p className="mb-2 text-caption text-secondary">
+          {activeStream?.kind === 'derived'
+            ? `Where ${activeStream.name} comes from`
+            : `Where ${activeStream?.name ?? 'this stream'} flows to`}
+        </p>
         <div className="flex flex-wrap gap-2">
           {lineage.map((line) => (
             <span key={line} className="rounded-full border border-border px-2 py-1 text-[11px] leading-none text-secondary">
@@ -162,7 +175,7 @@ export function StreamsView() {
               {activeStream?.kind === 'derived' ? 'Computed from:' : 'Also counts toward:'}
             </span>
             {relatedStreams.map((s) => (
-              <button key={s.slug} type="button" className="text-teal underline" onClick={() => setActive(s.slug)}>
+              <button key={s.slug} type="button" className="text-gold underline" onClick={() => setActive(s.slug)}>
                 {s.name}
               </button>
             ))}
@@ -211,7 +224,7 @@ export function StreamsView() {
                       stackId={stacked ? 'stack' : undefined}
                     />
                   ))}
-                  {chartData.length > 18 && <Brush dataKey="month" height={16} stroke="#00d4c8" travellerWidth={8} />}
+                  {chartData.length > 18 && <Brush dataKey="month" height={16} stroke="#d4af37" travellerWidth={8} />}
                 </BarChart>
               </ResponsiveContainer>
             )}
@@ -243,7 +256,7 @@ export function StreamsView() {
                         {formatMMK(row[c.slug] as number)}
                       </td>
                     ))}
-                    <td className="p-3 font-medium text-teal">{formatMMK(row.total as number)}</td>
+                    <td className="p-3 font-medium text-gold">{formatMMK(row.total as number)}</td>
                   </tr>
                 ))}
               </tbody>

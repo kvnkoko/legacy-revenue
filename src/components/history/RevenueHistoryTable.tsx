@@ -92,9 +92,9 @@ export function RevenueHistoryTable({
                 {streams.map((s) => (
                   <td key={s.slug} className="p-2 text-primary">{formatCurrency(Number(row[s.slug] ?? 0))}</td>
                 ))}
-                <td className="p-2 font-medium text-teal">{formatCurrency(Number(row.total))}</td>
-                <td className={`p-2 ${Math.abs(row.mom) < 1 ? 'text-secondary' : row.mom > 0 ? 'text-teal' : 'text-red-400'}`}>{formatCurrency(row.mom)}</td>
-                <td className={`p-2 ${Math.abs(row.momPct) < 1 ? 'text-secondary' : row.momPct > 0 ? 'text-teal' : 'text-red-400'}`}>{`${row.momPct >= 0 ? '+' : ''}${row.momPct.toFixed(1)}%`}</td>
+                <td className="p-2 font-medium text-gold">{formatCurrency(Number(row.total))}</td>
+                <td className={`p-2 ${Math.abs(row.mom) < 1 ? 'text-secondary' : row.mom > 0 ? 'text-gold' : 'text-red-400'}`}>{formatCurrency(row.mom)}</td>
+                <td className={`p-2 ${Math.abs(row.momPct) < 1 ? 'text-secondary' : row.momPct > 0 ? 'text-gold' : 'text-red-400'}`}>{`${row.momPct >= 0 ? '+' : ''}${row.momPct.toFixed(1)}%`}</td>
               </tr>
             ))}
             {missingMonths.map((month) => (

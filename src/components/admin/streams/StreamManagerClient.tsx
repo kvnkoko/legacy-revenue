@@ -49,7 +49,7 @@ export function StreamManagerClient({ config }: { config: StreamConfig }) {
           <button
             type="button"
             onClick={() => setCreating('entry')}
-            className="rounded-lg bg-teal px-3 py-2 text-body font-medium text-background hover:opacity-90"
+            className="rounded-lg bg-gold px-3 py-2 text-body font-medium text-background hover:opacity-90"
           >
             + New entry stream
           </button>
@@ -113,7 +113,7 @@ function StreamListSection({
               onClick={() => onSelect(s.id)}
               className={cn(
                 'flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-body transition-colors',
-                selectedId === s.id ? 'bg-teal/10 text-teal' : 'text-secondary hover:bg-elevated'
+                selectedId === s.id ? 'bg-gold/10 text-gold' : 'text-secondary hover:bg-elevated'
               )}
             >
               <span
@@ -144,7 +144,7 @@ function StreamEditor({
 }) {
   const [pending, startTransition] = useTransition();
   const [name, setName] = useState(stream.name);
-  const [color, setColor] = useState(stream.color ?? '#00d4c8');
+  const [color, setColor] = useState(stream.color ?? '#d4af37');
   const [inSummary, setInSummary] = useState(Boolean(stream.attributes.in_summary));
   const [newFieldLabel, setNewFieldLabel] = useState('');
   const fields = config.fields.filter((f) => f.streamId === stream.id);
@@ -181,7 +181,7 @@ function StreamEditor({
             type="button"
             disabled={pending}
             onClick={() => run(() => updateStream({ id: stream.id, name, color, inSummary }), 'Stream updated')}
-            className="rounded-lg bg-teal px-4 py-2 text-body font-medium text-background disabled:opacity-50"
+            className="rounded-lg bg-gold px-4 py-2 text-body font-medium text-background disabled:opacity-50"
           >
             Save
           </button>
@@ -247,7 +247,7 @@ function StreamEditor({
                 run(() => createField({ streamId: stream.id, label: newFieldLabel }), 'Field added');
                 setNewFieldLabel('');
               }}
-              className="rounded-lg border border-teal/50 px-3 py-2 text-body text-teal hover:bg-teal/10 disabled:opacity-50"
+              className="rounded-lg border border-gold/50 px-3 py-2 text-body text-gold hover:bg-gold/10 disabled:opacity-50"
             >
               Add field
             </button>
@@ -320,7 +320,7 @@ function FieldRow({
           <span className="rounded bg-card px-1.5 py-0.5 text-micro text-secondary">{field.groupValues.join(' × ')}</span>
         )}
         {myLinks.length > 0 && (
-          <span className="text-micro text-teal">
+          <span className="text-micro text-gold">
             → {myLinks.map((l) => config.streams.find((s) => s.id === l.targetStreamId)?.name).join(', ')}
           </span>
         )}
@@ -414,7 +414,7 @@ function FieldRow({
                 'Links updated'
               )
             }
-            className="mt-3 rounded-lg border border-teal/50 px-3 py-1.5 text-caption text-teal hover:bg-teal/10 disabled:opacity-50"
+            className="mt-3 rounded-lg border border-gold/50 px-3 py-1.5 text-caption text-gold hover:bg-gold/10 disabled:opacity-50"
           >
             Save links
           </button>
@@ -459,7 +459,7 @@ function NewEntryStreamForm({ onDone, onCancel }: { onDone: () => void; onCancel
     });
 
   return (
-    <section className="rounded-xl border border-teal/40 bg-card p-4">
+    <section className="rounded-xl border border-gold/40 bg-card p-4">
       <h3 className="text-body font-semibold text-primary">New entry stream</h3>
       <p className="text-caption text-secondary">e.g. Apple Music with FUGA and Believe fields.</p>
       <div className="mt-3 space-y-3">
@@ -485,7 +485,7 @@ function NewEntryStreamForm({ onDone, onCancel }: { onDone: () => void; onCancel
               onClick={() => setMode(m)}
               className={cn(
                 'rounded-lg px-3 py-1.5 text-caption',
-                mode === m ? 'bg-teal/15 text-teal' : 'bg-elevated text-secondary'
+                mode === m ? 'bg-gold/15 text-gold' : 'bg-elevated text-secondary'
               )}
             >
               {m === 'flat' ? 'Simple fields' : 'Category grid (like MPT)'}
@@ -518,7 +518,7 @@ function NewEntryStreamForm({ onDone, onCancel }: { onDone: () => void; onCancel
           </div>
         )}
         <div className="flex gap-2">
-          <button type="button" disabled={pending || !name.trim()} onClick={submit} className="rounded-lg bg-teal px-4 py-2 text-body font-medium text-background disabled:opacity-50">
+          <button type="button" disabled={pending || !name.trim()} onClick={submit} className="rounded-lg bg-gold px-4 py-2 text-body font-medium text-background disabled:opacity-50">
             {pending ? 'Creating…' : 'Create stream'}
           </button>
           <button type="button" onClick={onCancel} className="rounded-lg border border-border px-4 py-2 text-body text-secondary hover:bg-elevated">
@@ -548,7 +548,7 @@ function NewDerivedStreamForm({ onDone, onCancel }: { onDone: () => void; onCanc
     });
 
   return (
-    <section className="rounded-xl border border-teal/40 bg-card p-4">
+    <section className="rounded-xl border border-gold/40 bg-card p-4">
       <h3 className="text-body font-semibold text-primary">New derived stream</h3>
       <p className="text-caption text-secondary">
         A computed roll-up (like Ringtune or International). It has no direct entry — instead, entry
@@ -567,7 +567,7 @@ function NewDerivedStreamForm({ onDone, onCancel }: { onDone: () => void; onCanc
           <input type="checkbox" checked={inSummary} onChange={(e) => setInSummary(e.target.checked)} className="h-4 w-4" />
           Counts in revenue total
         </label>
-        <button type="button" disabled={pending || !name.trim()} onClick={submit} className="rounded-lg bg-teal px-4 py-2 text-body font-medium text-background disabled:opacity-50">
+        <button type="button" disabled={pending || !name.trim()} onClick={submit} className="rounded-lg bg-gold px-4 py-2 text-body font-medium text-background disabled:opacity-50">
           {pending ? 'Creating…' : 'Create'}
         </button>
         <button type="button" onClick={onCancel} className="rounded-lg border border-border px-4 py-2 text-body text-secondary hover:bg-elevated">

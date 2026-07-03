@@ -106,9 +106,9 @@ export default async function DashboardPage({
 
       {/* KPI cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="rounded-xl border border-border bg-card p-5 hover:border-border-hover transition shadow-glow-teal">
+        <div className="rounded-xl border border-border bg-card p-5 hover:border-border-hover transition shadow-glow-gold">
           <p className="text-caption font-medium text-secondary">Total Revenue (Latest Recorded Month)</p>
-          <p className="text-title font-bold text-teal mt-1"><FormattedCurrency value={totalRevenue} /></p>
+          <p className="text-title font-bold text-gold mt-1"><FormattedCurrency value={totalRevenue} /></p>
           <p className="text-micro text-muted mt-0.5">
             {latestRecordedMonth
               ? new Date(latestRecordedMonth.month).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
@@ -119,7 +119,7 @@ export default async function DashboardPage({
           <p className="text-caption font-medium text-secondary">MoM Growth</p>
           <p
             className={`text-title font-bold mt-1 ${
-              momGrowth != null && momGrowth < 0 ? 'text-danger' : 'text-teal'
+              momGrowth != null && momGrowth < 0 ? 'text-danger' : 'text-gold'
             }`}
           >
             {momGrowth != null ? formatPercent(momGrowth) : '—'}

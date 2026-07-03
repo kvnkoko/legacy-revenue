@@ -12,7 +12,7 @@ import type {
 
 /** Fallback palette for streams created without an explicit color. */
 export const STREAM_FALLBACK_COLORS = [
-  '#00d4c8', '#3b82f6', '#8b5cf6', '#f59e0b', '#10b981',
+  '#d4af37', '#3b82f6', '#8b5cf6', '#f59e0b', '#10b981',
   '#ef4444', '#22c55e', '#ec4899', '#0ea5e9', '#a78bfa',
   '#f97316', '#6366f1', '#14b8a6', '#84cc16', '#64748b',
 ] as const;

@@ -110,7 +110,7 @@ export function ImportExcelClient() {
         onDragOver={onDragOver}
         onDragLeave={onDragLeave}
         className={`rounded-xl border-2 border-dashed p-5 sm:p-8 md:p-12 text-center transition ${
-          drag ? 'border-teal bg-teal/5' : 'border-border bg-card'
+          drag ? 'border-gold bg-gold/5' : 'border-border bg-card'
         }`}
       >
         <p className="text-secondary mb-2">Drag and drop .xlsx here, or</p>
@@ -121,7 +121,7 @@ export function ImportExcelClient() {
           className="hidden"
           id="excel-upload"
         />
-        <label htmlFor="excel-upload" className="cursor-pointer rounded-lg bg-teal text-background px-4 py-2 font-medium inline-block hover:opacity-90">
+        <label htmlFor="excel-upload" className="cursor-pointer rounded-lg bg-gold text-background px-4 py-2 font-medium inline-block hover:opacity-90">
           Choose file
         </label>
       </div>
@@ -135,7 +135,7 @@ export function ImportExcelClient() {
           <div className="overflow-x-auto space-y-4 max-h-96 overflow-y-auto">
             {parsed.slice(0, 5).map((sheet) => (
               <div key={sheet.name}>
-                <p className="text-teal font-medium mb-2">{sheet.name}</p>
+                <p className="text-gold font-medium mb-2">{sheet.name}</p>
                 <table className="w-full text-xs">
                   <thead>
                     <tr className="border-b border-border">
@@ -165,7 +165,7 @@ export function ImportExcelClient() {
               type="button"
               onClick={onImport}
               disabled={loading}
-              className="w-full rounded-lg bg-teal text-background font-medium px-4 py-2 hover:opacity-90 disabled:opacity-50 sm:w-auto"
+              className="w-full rounded-lg bg-gold text-background font-medium px-4 py-2 hover:opacity-90 disabled:opacity-50 sm:w-auto"
             >
               {loading ? 'Importing…' : 'Import'}
             </button>

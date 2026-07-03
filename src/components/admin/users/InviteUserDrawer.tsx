@@ -96,7 +96,7 @@ export function InviteUserDrawer({
               <label
                 key={r}
                 className={`flex cursor-pointer items-start gap-3 rounded-lg border p-2.5 transition-colors ${
-                  role === r ? 'border-teal/50 bg-teal/5' : 'border-border hover:bg-card'
+                  role === r ? 'border-gold/50 bg-gold/5' : 'border-border hover:bg-card'
                 }`}
               >
                 <input type="radio" checked={role === r} onChange={() => pickRole(r)} className="mt-1" />
@@ -132,7 +132,7 @@ export function InviteUserDrawer({
           type="button"
           onClick={submit}
           disabled={pending}
-          className="w-full rounded-lg bg-teal px-4 py-2 text-body font-medium text-background disabled:opacity-50"
+          className="w-full rounded-lg bg-gold px-4 py-2 text-body font-medium text-background disabled:opacity-50"
         >
           {pending ? 'Sending Invite…' : 'Send Invite'}
         </button>

@@ -17,7 +17,7 @@ const config: Config = {
         primary: 'rgb(var(--color-primary) / <alpha-value>)',
         secondary: 'rgb(var(--color-secondary) / <alpha-value>)',
         muted: 'rgb(var(--color-muted) / <alpha-value>)',
-        teal: 'rgb(var(--color-teal) / <alpha-value>)',
+        gold: 'rgb(var(--color-gold) / <alpha-value>)',
         amber: 'rgb(var(--color-amber) / <alpha-value>)',
         danger: 'rgb(var(--color-danger) / <alpha-value>)',
         blue: 'rgb(var(--color-blue) / <alpha-value>)',
@@ -43,7 +43,7 @@ const config: Config = {
         '18': '4.5rem',
       },
       boxShadow: {
-        'glow-teal': '0 0 20px rgba(0, 212, 200, 0.15)',
+        'glow-gold': '0 0 20px rgba(212, 175, 55, 0.18)',
         'glow-amber': '0 0 20px rgba(245, 158, 11, 0.15)',
       },
     },

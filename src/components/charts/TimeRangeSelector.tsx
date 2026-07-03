@@ -19,7 +19,7 @@ export function TimeRangeSelector({
           onClick={() => onChange(option)}
           className={`shrink-0 whitespace-nowrap rounded-md border px-2.5 py-1 text-caption transition-colors ${
             value === option
-              ? 'border-teal bg-teal/10 text-teal'
+              ? 'border-gold bg-gold/10 text-gold'
               : 'border-border bg-elevated text-secondary hover:text-primary'
           }`}
         >

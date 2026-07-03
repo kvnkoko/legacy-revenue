@@ -8,9 +8,9 @@ type NodeValue = Record<string, number>;
 export function RevenueArchitectureDiagram({ values }: { values: NodeValue }) {
   const { formatCurrency } = useCurrency();
   const node = (label: string, value: number, href: string) => (
-    <Link href={href} className="rounded-lg border border-border bg-elevated px-3 py-2 text-caption text-primary hover:border-teal/60">
+    <Link href={href} className="rounded-lg border border-border bg-elevated px-3 py-2 text-caption text-primary hover:border-gold/60">
       <div>{label}</div>
-      <div className="text-teal">{formatCurrency(value)}</div>
+      <div className="text-gold">{formatCurrency(value)}</div>
     </Link>
   );
 

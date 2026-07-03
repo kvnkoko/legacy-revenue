@@ -7,7 +7,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 
 const inputClass =
-  'w-full rounded-lg border border-border bg-elevated px-3.5 py-2.5 text-body text-primary placeholder-muted focus:border-teal focus:ring-1 focus:ring-teal outline-none transition';
+  'w-full rounded-lg border border-border bg-elevated px-3.5 py-2.5 text-body text-primary placeholder-muted focus:border-gold focus:ring-1 focus:ring-gold outline-none transition';
 
 export default function SignupPage() {
   const [fullName, setFullName] = useState('');
@@ -43,7 +43,7 @@ export default function SignupPage() {
     return (
       <div className="min-h-screen flex items-center justify-center p-4 bg-background">
         <div className="rounded-xl border border-border bg-card p-6 text-center max-w-[400px]">
-          <p className="text-body font-semibold text-teal">Account created</p>
+          <p className="text-body font-semibold text-gold">Account created</p>
           <p className="text-caption text-secondary mt-1">Redirecting to sign in…</p>
         </div>
       </div>
@@ -53,7 +53,7 @@ export default function SignupPage() {
   return (
     <div className="min-h-screen flex items-center justify-center p-4 bg-background">
       <div className="w-full max-w-[400px]">
-        <div className="rounded-xl border border-border bg-card p-6 shadow-glow-teal">
+        <div className="rounded-xl border border-border bg-card p-6 shadow-glow-gold">
           <div className="text-center mb-6">
             <div className="relative mx-auto mb-4 h-10 w-[220px] max-w-full sm:h-11 sm:w-[240px]">
               <Image
@@ -144,14 +144,14 @@ export default function SignupPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full rounded-lg bg-teal text-background font-semibold py-2.5 px-4 text-body hover:opacity-90 focus:ring-2 focus:ring-teal focus:ring-offset-2 focus:ring-offset-background disabled:opacity-50 transition"
+              className="w-full rounded-lg bg-gold text-background font-semibold py-2.5 px-4 text-body hover:opacity-90 focus:ring-2 focus:ring-gold focus:ring-offset-2 focus:ring-offset-background disabled:opacity-50 transition"
             >
               {loading ? 'Creating account…' : 'Sign up'}
             </button>
           </form>
           <p className="mt-5 text-center text-caption text-secondary">
             Already have an account?{' '}
-            <Link href="/login" className="text-teal hover:underline font-medium">
+            <Link href="/login" className="text-gold hover:underline font-medium">
               Sign in
             </Link>
           </p>

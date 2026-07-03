@@ -33,7 +33,7 @@ VALUES
   ('spotify',           'Spotify',           '#22c55e', 90,  'entry',   NULL, '{"in_summary": true, "summary_column": "spotify"}'),
   ('tiktok',            'TikTok',            '#ec4899', 100, 'entry',   NULL, '{"in_summary": true, "summary_column": "tiktok"}'),
   -- derived streams (computed from field_links; legacy lineage equivalents)
-  ('ringtune',          'Ringtune',          '#00d4c8', 200, 'derived', NULL, '{"in_summary": true, "summary_column": "ringtune"}'),
+  ('ringtune',          'Ringtune',          '#d4af37', 200, 'derived', NULL, '{"in_summary": true, "summary_column": "ringtune"}'),
   ('eauc',              'EAUC',              '#3b82f6', 210, 'derived', NULL, '{"in_summary": true, "summary_column": "eauc"}'),
   ('combo',             'Combo',             '#8b5cf6', 220, 'derived', NULL, '{"in_summary": true, "summary_column": "combo"}'),
   ('local',             'Local',             '#64748b', 230, 'derived', NULL, '{}'),

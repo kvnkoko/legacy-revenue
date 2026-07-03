@@ -60,7 +60,7 @@ export function PermissionsMatrix({
                   disabled={disabled}
                   title={disabled ? 'Admins always have full access. Change the role to restrict permissions.' : ''}
                   onChange={(e) => onChange({ ...value, [item.key]: e.target.checked })}
-                  className="h-4 w-4 rounded border-border text-teal focus:ring-teal"
+                  className="h-4 w-4 rounded border-border text-gold focus:ring-gold"
                 />
               </label>
             ))}

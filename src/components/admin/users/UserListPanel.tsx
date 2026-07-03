@@ -73,7 +73,7 @@ export function UserListPanel({
         <button
           type="button"
           onClick={() => setInviteOpen(true)}
-          className="rounded-lg bg-teal px-3 py-2 text-caption font-medium text-background"
+          className="rounded-lg bg-gold px-3 py-2 text-caption font-medium text-background"
         >
           + Invite User
         </button>
@@ -92,7 +92,7 @@ export function UserListPanel({
             type="button"
             onClick={() => setFilter(f)}
             className={`rounded-full px-2 py-1 text-micro ${
-              filter === f ? 'bg-teal/15 text-teal' : 'bg-elevated text-secondary'
+              filter === f ? 'bg-gold/15 text-gold' : 'bg-elevated text-secondary'
             }`}
           >
             {f === 'pending_invites' ? 'PENDING INVITES' : f.toUpperCase()}
@@ -124,7 +124,7 @@ export function UserListPanel({
                   type="button"
                   onClick={() => onSelect(id)}
                   className={`w-full rounded-lg border p-3 text-left transition-colors ${
-                    selectedId === id ? 'border-teal bg-teal/10' : 'border-border bg-elevated hover:border-border-hover'
+                    selectedId === id ? 'border-gold bg-gold/10' : 'border-border bg-elevated hover:border-border-hover'
                   }`}
                 >
                   <div className="flex items-start justify-between gap-3">
@@ -150,7 +150,7 @@ export function UserListPanel({
             type="button"
             onClick={() => onSelect(user.id)}
             className={`w-full rounded-lg border p-3 text-left transition-colors ${
-              selectedId === user.id ? 'border-teal bg-teal/10' : 'border-border bg-elevated hover:border-border-hover'
+              selectedId === user.id ? 'border-gold bg-gold/10' : 'border-border bg-elevated hover:border-border-hover'
             }`}
           >
             <div className="flex items-start justify-between gap-3">

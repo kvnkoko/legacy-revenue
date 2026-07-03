@@ -153,7 +153,7 @@ export function StreamEntryWizard({
             className={cn(
               'flex items-center gap-1.5 rounded-full border px-2.5 py-1',
               i === step
-                ? 'border-teal/50 bg-teal/10 text-teal'
+                ? 'border-gold/50 bg-gold/10 text-gold'
                 : i < step
                   ? 'border-border text-secondary'
                   : 'border-transparent text-muted'
@@ -202,8 +202,8 @@ export function StreamEntryWizard({
                     title={`${monthLabel(c.month)}: ${c.state}`}
                     className={cn(
                       'rounded px-2 py-1 text-micro border transition-colors',
-                      month === c.month && 'ring-1 ring-teal',
-                      c.state === 'complete' && 'border-teal/40 bg-teal/10 text-teal',
+                      month === c.month && 'ring-1 ring-gold',
+                      c.state === 'complete' && 'border-gold/40 bg-gold/10 text-gold',
                       c.state === 'partial' && 'border-amber-500/40 bg-amber-500/10 text-amber-300',
                       c.state === 'missing' && 'border-red-500/40 bg-red-500/10 text-red-300',
                       c.state === 'future' && 'border-border text-muted opacity-60'
@@ -244,9 +244,9 @@ export function StreamEntryWizard({
                 <p className="text-caption text-secondary">Derived streams (computed automatically)</p>
                 <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
                   {derivedPreview.map((d) => (
-                    <div key={d.name} className="rounded-lg border border-teal/30 bg-teal/5 p-3">
+                    <div key={d.name} className="rounded-lg border border-gold/30 bg-gold/5 p-3">
                       <p className="text-caption text-secondary">{d.name}</p>
-                      <p className="text-body font-semibold text-teal">{formatMMK(d.total)}</p>
+                      <p className="text-body font-semibold text-gold">{formatMMK(d.total)}</p>
                     </div>
                   ))}
                 </div>
@@ -254,7 +254,7 @@ export function StreamEntryWizard({
             )}
             <div className="rounded-lg border border-border bg-elevated p-4">
               <p className="text-caption text-secondary">Month total (summary streams)</p>
-              <p className="text-title font-bold text-teal">{formatMMK(grandTotal)}</p>
+              <p className="text-title font-bold text-gold">{formatMMK(grandTotal)}</p>
               <p className="mt-1 text-micro text-muted">Submitting as {submittingAs}</p>
             </div>
           </div>
@@ -275,7 +275,7 @@ export function StreamEntryWizard({
           <button
             type="button"
             onClick={next}
-            className="rounded-lg bg-teal px-4 py-2 text-body font-medium text-background hover:opacity-90"
+            className="rounded-lg bg-gold px-4 py-2 text-body font-medium text-background hover:opacity-90"
           >
             Next
           </button>
@@ -286,7 +286,7 @@ export function StreamEntryWizard({
             type="button"
             onClick={submit}
             disabled={saving}
-            className="rounded-lg bg-teal px-4 py-2 text-body font-medium text-background hover:opacity-90 disabled:opacity-50"
+            className="rounded-lg bg-gold px-4 py-2 text-body font-medium text-background hover:opacity-90 disabled:opacity-50"
           >
             {saving ? 'Saving…' : monthExists ? 'Update Month' : 'Save Month'}
           </button>
@@ -329,7 +329,7 @@ function StreamStep({
       <div className="flex items-baseline justify-between gap-3">
         <h3 className="text-body font-semibold text-primary">{stream.name}</h3>
         <p className="text-caption text-secondary">
-          Subtotal: <span className="font-semibold text-teal">{formatMMK(subtotal)}</span>
+          Subtotal: <span className="font-semibold text-gold">{formatMMK(subtotal)}</span>
         </p>
       </div>
 
@@ -349,7 +349,7 @@ function StreamStep({
                 placeholder="0"
                 readOnly={viewOnly}
                 onChange={(e) => onChange(f.id, e.target.value)}
-                className="mt-1 w-full rounded-lg border border-border bg-elevated px-3 py-2 text-body text-primary focus:border-teal focus:outline-none"
+                className="mt-1 w-full rounded-lg border border-border bg-elevated px-3 py-2 text-body text-primary focus:border-gold focus:outline-none"
               />
             </label>
           ))}
@@ -406,7 +406,7 @@ function GroupGrid({
                       placeholder="0"
                       readOnly={viewOnly}
                       onChange={(e) => onChange(field.id, e.target.value)}
-                      className="w-full min-w-28 rounded-lg border border-border bg-elevated px-2.5 py-1.5 text-body text-primary focus:border-teal focus:outline-none"
+                      className="w-full min-w-28 rounded-lg border border-border bg-elevated px-2.5 py-1.5 text-body text-primary focus:border-gold focus:outline-none"
                     />
                   </td>
                 );

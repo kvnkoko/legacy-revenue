@@ -156,8 +156,11 @@ export function AuditTable({
           className="rounded-lg border border-border bg-elevated px-3 py-1.5 text-primary text-sm"
         >
           <option value="all">All roles</option>
-          <option value="admin">Admins only</option>
-          <option value="staff">Staff only</option>
+          <option value="admin">Admin</option>
+          <option value="editor">Editor</option>
+          <option value="data">Data</option>
+          <option value="viewer">Viewer</option>
+          <option value="staff">Staff (historical)</option>
         </select>
         {canExport && (
           <button
@@ -198,7 +201,7 @@ export function AuditTable({
                 </td>
                 <td className="py-2.5 px-4 text-secondary capitalize">{log.user_role ?? 'system'}</td>
                 <td className="py-2.5 px-4">
-                  <span className={`font-medium ${log.action === 'DELETE' ? 'text-danger' : log.action === 'IMPORT' ? 'text-amber' : 'text-teal'}`}>
+                  <span className={`font-medium ${log.action === 'DELETE' ? 'text-danger' : log.action === 'IMPORT' ? 'text-amber' : 'text-gold'}`}>
                     {log.action}
                   </span>
                 </td>

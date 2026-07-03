@@ -37,7 +37,7 @@ export function AccessDenied({
           href={`mailto:${contactEmail}?subject=Access%20Request&body=Hello%2C%20I%20need%20access%20to%20${encodeURIComponent(
             permissionName ?? 'this section'
           )}.`}
-          className="rounded-lg bg-teal px-4 py-2 text-body font-medium text-background hover:opacity-90"
+          className="rounded-lg bg-gold px-4 py-2 text-body font-medium text-background hover:opacity-90"
         >
           Contact Admin →
         </a>

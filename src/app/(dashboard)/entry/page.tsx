@@ -170,7 +170,7 @@ export default async function EntryPage({
                   <td className="p-3 text-primary">{new Date(row.month).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}</td>
                   <td className="p-3 text-primary">{row.status === 'Missing' ? '—' : row.total.toLocaleString()}</td>
                   <td className="p-3 text-secondary">{row.entryDate ? new Date(row.entryDate).toLocaleDateString() : '—'}</td>
-                  <td className={`p-3 ${row.status === 'Complete' ? 'text-teal' : row.status === 'Partial' ? 'text-amber-500' : 'text-red-400'}`}>{row.status}</td>
+                  <td className={`p-3 ${row.status === 'Complete' ? 'text-gold' : row.status === 'Partial' ? 'text-amber-500' : 'text-red-400'}`}>{row.status}</td>
                   <td className="p-3">
                     <div className="flex flex-col gap-2 sm:flex-row">
                       {(perms.isAdmin || perms.can.editData || row.status === 'Missing') && (

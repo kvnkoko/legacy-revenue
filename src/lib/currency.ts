@@ -4,7 +4,10 @@
  */
 
 export const CURRENCIES = [
-  { code: 'MMK', name: 'Myanmar Kyat', symbol: 'K', locale: 'my-MM' },
+  // MMK uses en-US formatting: the portal displays Western digits with comma
+  // separators (e.g. MMK 197,323,395). The my-MM locale renders Burmese
+  // numerals on the server but not all clients, causing hydration mismatches.
+  { code: 'MMK', name: 'Myanmar Kyat', symbol: 'K', locale: 'en-US' },
   { code: 'USD', name: 'US Dollar', symbol: '$', locale: 'en-US' },
   { code: 'THB', name: 'Thai Baht', symbol: '฿', locale: 'th-TH' },
   { code: 'SGD', name: 'Singapore Dollar', symbol: 'S$', locale: 'en-SG' },

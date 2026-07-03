@@ -89,7 +89,7 @@ export function RevenueTrendChart({ data, streams }: { data: Row[]; streams: Tre
               />
             ))}
             {showRolling && <Line type="monotone" dataKey="rolling3" stroke="#ffffff" strokeDasharray="4 4" dot={false} name="3M average" />}
-            {chartData.length > 18 && <Brush dataKey="monthLabel" height={18} stroke="#00d4c8" travellerWidth={8} />}
+            {chartData.length > 18 && <Brush dataKey="monthLabel" height={18} stroke="#d4af37" travellerWidth={8} />}
           </AreaChart>
         </ResponsiveContainer>
       </div>

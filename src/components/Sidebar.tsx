@@ -53,21 +53,41 @@ export function Sidebar({
     return false;
   }, [months]);
 
-  const nav = useMemo(() => {
-    const items = [
-      { href: '/dashboard', label: 'Overview', Icon: ChartBarIcon, show: true },
-      { href: '/streams', label: 'Revenue Streams', Icon: CurrencyCircleDollarIcon, show: perms.can.viewStreams || perms.isAdmin },
-      { href: '/analytics', label: 'Analytics', Icon: ChartPieSliceIcon, show: perms.can.viewAnalytics || perms.isAdmin },
-      { href: '/entry', label: 'Data Entry', Icon: PencilSimpleLineIcon, show: perms.can.enterData || perms.isAdmin },
-      { href: '/import', label: 'Import Excel', Icon: FileXlsIcon, show: perms.can.importExcel || perms.isAdmin },
-      { href: '/history', label: 'History', Icon: ScrollIcon, show: perms.can.viewStreams || perms.isAdmin },
-      { href: '/admin/streams', label: 'Stream Management', Icon: TreeStructureIcon, show: perms.can.configureStreams || perms.isAdmin },
-      { href: '/admin/users', label: 'User Management', Icon: UsersThreeIcon, show: perms.can.manageUsers || perms.isAdmin },
-      { href: '/audit', label: 'Audit Log', Icon: ScrollIcon, show: perms.can.viewAuditLog || perms.isAdmin },
-      { href: '/settings', label: 'Settings', Icon: GearIcon, show: true },
-      { href: '/admin/settings', label: 'Admin Settings', Icon: GearIcon, show: perms.isAdmin },
+  const navSections = useMemo(() => {
+    const sections = [
+      {
+        title: 'Insights',
+        items: [
+          { href: '/dashboard', label: 'Overview', Icon: ChartBarIcon, show: true },
+          { href: '/streams', label: 'Revenue Streams', Icon: CurrencyCircleDollarIcon, show: perms.can.viewStreams || perms.isAdmin },
+          { href: '/analytics', label: 'Analytics', Icon: ChartPieSliceIcon, show: perms.can.viewAnalytics || perms.isAdmin },
+          { href: '/history', label: 'History', Icon: ScrollIcon, show: perms.can.viewStreams || perms.isAdmin },
+        ],
+      },
+      {
+        title: 'Data Work',
+        items: [
+          { href: '/entry', label: 'Data Entry', Icon: PencilSimpleLineIcon, show: perms.can.enterData || perms.isAdmin },
+          { href: '/import', label: 'Import Excel', Icon: FileXlsIcon, show: perms.can.importExcel || perms.isAdmin },
+        ],
+      },
+      {
+        title: 'Administration',
+        items: [
+          { href: '/admin/streams', label: 'Stream Management', Icon: TreeStructureIcon, show: perms.can.configureStreams || perms.isAdmin },
+          { href: '/admin/users', label: 'User Management', Icon: UsersThreeIcon, show: perms.can.manageUsers || perms.isAdmin },
+          { href: '/audit', label: 'Audit Log', Icon: ScrollIcon, show: perms.can.viewAuditLog || perms.isAdmin },
+          { href: '/admin/settings', label: 'Admin Settings', Icon: GearIcon, show: perms.isAdmin },
+        ],
+      },
+      {
+        title: 'Personal',
+        items: [{ href: '/settings', label: 'Settings', Icon: GearIcon, show: true }],
+      },
     ];
-    return items.filter((item) => item.show);
+    return sections
+      .map((section) => ({ ...section, items: section.items.filter((i) => i.show) }))
+      .filter((section) => section.items.length > 0);
   }, [perms]);
 
   const signOut = async () => {
@@ -129,30 +149,34 @@ export function Sidebar({
         </Link>
       </div>
       <nav className="p-3 flex-1 overflow-y-auto min-h-0" aria-label="Main">
-        <p className="px-2 pb-2 text-micro uppercase tracking-wide text-muted">Navigation</p>
-        <ul className="space-y-1">
-          {nav.map(({ href, label, Icon }) => {
-            const isActive =
-              pathname === href || (href !== '/dashboard' && pathname.startsWith(href));
-            return (
-              <li key={href}>
-                <Link
-                  href={href}
-                  onClick={onClose}
-                  className={cn(
-                    'flex items-center gap-2.5 rounded-lg px-3 py-2 text-body font-medium transition-colors',
-                    isActive
-                      ? 'bg-teal/10 text-teal border border-teal/40'
-                      : 'text-secondary hover:bg-elevated hover:text-primary border border-transparent'
-                  )}
-                >
-                  <Icon weight="duotone" size={20} className="shrink-0" />
-                  <span className="whitespace-nowrap">{label}</span>
-                </Link>
-              </li>
-            );
-          })}
-        </ul>
+        {navSections.map((section) => (
+          <div key={section.title} className="mb-4">
+            <p className="px-2 pb-1.5 text-micro uppercase tracking-wide text-muted">{section.title}</p>
+            <ul className="space-y-1">
+              {section.items.map(({ href, label, Icon }) => {
+                const isActive =
+                  pathname === href || (href !== '/dashboard' && pathname.startsWith(href));
+                return (
+                  <li key={href}>
+                    <Link
+                      href={href}
+                      onClick={onClose}
+                      className={cn(
+                        'flex items-center gap-2.5 rounded-lg px-3 py-2 text-body font-medium transition-colors',
+                        isActive
+                          ? 'bg-gold/10 text-gold border border-gold/40'
+                          : 'text-secondary hover:bg-elevated hover:text-primary border border-transparent'
+                      )}
+                    >
+                      <Icon weight="duotone" size={20} className="shrink-0" />
+                      <span className="whitespace-nowrap">{label}</span>
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        ))}
         {hasGap && (
           <div className="mt-4 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3">
             <p className="text-caption font-semibold text-amber-300">Gap Detected</p>
@@ -172,7 +196,7 @@ export function Sidebar({
       <div className="mt-auto shrink-0 border-t border-border p-3">
         <div className="rounded-lg border border-border bg-elevated p-3">
           <div className="flex items-center gap-2">
-            <div className="h-8 w-8 rounded-full bg-teal/15 text-teal flex items-center justify-center text-caption font-semibold">
+            <div className="h-8 w-8 rounded-full bg-gold/15 text-gold flex items-center justify-center text-caption font-semibold">
               {initials || 'U'}
             </div>
             <div className="min-w-0">

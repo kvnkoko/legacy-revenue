@@ -23,7 +23,7 @@ export default async function HomePage() {
         <div className="mt-8 flex gap-3 justify-center">
           <Link
             href="/login"
-            className="rounded-lg bg-teal text-background font-semibold py-2.5 px-5 text-body hover:opacity-90 transition"
+            className="rounded-lg bg-gold text-background font-semibold py-2.5 px-5 text-body hover:opacity-90 transition"
           >
             Sign in
           </Link>

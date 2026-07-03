@@ -45,7 +45,7 @@ export async function getSummaryMatrix(
   const streams: SummaryStream[] = summaryStreams.map((s, i) => ({
     slug: s.slug,
     name: s.name,
-    color: s.color ?? ['#00d4c8', '#3b82f6', '#8b5cf6', '#f59e0b', '#10b981', '#ef4444', '#22c55e', '#ec4899'][i % 8],
+    color: s.color ?? ['#d4af37', '#3b82f6', '#8b5cf6', '#f59e0b', '#10b981', '#ef4444', '#22c55e', '#ec4899'][i % 8],
   }));
   const idToSlug = new Map(summaryStreams.map((s) => [s.id, s.slug]));
 

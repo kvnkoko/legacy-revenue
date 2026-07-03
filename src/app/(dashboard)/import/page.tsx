@@ -334,17 +334,17 @@ export default function ImportPage() {
         <p className="text-body text-secondary mt-0.5">Upload .xlsx or .xls to bulk import revenue data</p>
       </div>
       <div
-        className="rounded-xl border-2 border-dashed border-border bg-card p-8 text-center transition-colors hover:border-teal/50"
+        className="rounded-xl border-2 border-dashed border-border bg-card p-8 text-center transition-colors hover:border-gold/50"
         onDragOver={(e) => {
           e.preventDefault();
-          e.currentTarget.classList.add('border-teal');
+          e.currentTarget.classList.add('border-gold');
         }}
         onDragLeave={(e) => {
-          e.currentTarget.classList.remove('border-teal');
+          e.currentTarget.classList.remove('border-gold');
         }}
         onDrop={(e) => {
           e.preventDefault();
-          e.currentTarget.classList.remove('border-teal');
+          e.currentTarget.classList.remove('border-gold');
           const f = e.dataTransfer.files[0];
           if (f?.name.endsWith('.xlsx') || f?.name.endsWith('.xls')) {
             setFile(f);
@@ -367,7 +367,7 @@ export default function ImportPage() {
         />
         <label
           htmlFor="excel-upload"
-          className="flex flex-col items-center gap-2 cursor-pointer text-secondary hover:text-teal transition-colors"
+          className="flex flex-col items-center gap-2 cursor-pointer text-secondary hover:text-gold transition-colors"
         >
           <UploadSimpleIcon weight="duotone" size={40} />
           Drop .xlsx here or click to browse
@@ -384,7 +384,7 @@ export default function ImportPage() {
                 <p className="mb-2 text-body text-primary">Relationship Validation Summary</p>
                 <ul className="space-y-1 text-caption">
                   {validation.slice(0, 12).map((item, idx) => (
-                    <li key={idx} className={item.level === 'critical' ? 'text-red-400' : item.level === 'warn' ? 'text-amber-500' : 'text-teal'}>
+                    <li key={idx} className={item.level === 'critical' ? 'text-red-400' : item.level === 'warn' ? 'text-amber-500' : 'text-gold'}>
                       {item.level === 'critical' ? '⚠' : item.level === 'warn' ? '⚠' : '✓'} {item.message}
                     </li>
                   ))}
@@ -394,7 +394,7 @@ export default function ImportPage() {
             <div className="space-y-4">
               {preview.slice(0, 5).map((s) => (
                 <div key={s.name}>
-                  <p className="text-body text-teal font-medium">
+                  <p className="text-body text-gold font-medium">
                     {s.name} → {SHEET_TABLE_MAP[s.name] ?? '(no mapping)'}
                   </p>
                   <div className="mt-2 overflow-x-auto">
@@ -433,7 +433,7 @@ export default function ImportPage() {
             type="button"
             onClick={handleImport}
             disabled={uploading}
-            className="rounded-lg bg-teal px-4 py-2.5 font-medium text-background text-body hover:opacity-90 disabled:opacity-50 transition"
+            className="rounded-lg bg-gold px-4 py-2.5 font-medium text-background text-body hover:opacity-90 disabled:opacity-50 transition"
           >
             {uploading ? 'Importing…' : 'Import'}
           </button>
@@ -443,8 +443,8 @@ export default function ImportPage() {
       {result && (
         <div className="rounded-xl border border-border bg-card p-5">
           <h3 className="text-body font-semibold text-primary">Result</h3>
-          <p className="text-body text-teal mt-1">Rows inserted: {result.inserted}</p>
-          <p className="text-body text-teal">Rows updated: {result.updated}</p>
+          <p className="text-body text-gold mt-1">Rows inserted: {result.inserted}</p>
+          <p className="text-body text-gold">Rows updated: {result.updated}</p>
           <p className="text-body text-secondary">Rows unchanged (skipped): {result.skipped}</p>
           {result.warnings.length > 0 && (
             <ul className="mt-2 text-body text-amber-500">
@@ -474,7 +474,7 @@ export default function ImportPage() {
               <input type="month" value={exportEnd} onChange={(e) => setExportEnd(e.target.value)} className="rounded border border-border bg-elevated px-2 py-1 text-caption text-primary" />
             </>
           )}
-          <button type="button" onClick={handleExport} className="rounded-lg bg-teal px-4 py-2 text-body font-medium text-background">
+          <button type="button" onClick={handleExport} className="rounded-lg bg-gold px-4 py-2 text-body font-medium text-background">
             Export to Excel (Legacy Format)
           </button>
         </div>

@@ -141,7 +141,7 @@ export function SettingsForm({
             type="button"
             onClick={handleSaveProfile}
             disabled={isPending}
-            className="w-full rounded-lg bg-teal px-4 py-2 text-body font-medium text-background disabled:opacity-50 sm:w-auto"
+            className="w-full rounded-lg bg-gold px-4 py-2 text-body font-medium text-background disabled:opacity-50 sm:w-auto"
           >
             {isPending ? 'Saving…' : 'Save Profile'}
           </button>
@@ -189,7 +189,7 @@ export function SettingsForm({
               type="button"
               onClick={handleSaveCurrency}
               disabled={isPending}
-              className="mt-3 rounded-lg bg-teal px-4 py-2 text-caption font-medium text-background disabled:opacity-50"
+              className="mt-3 rounded-lg bg-gold px-4 py-2 text-caption font-medium text-background disabled:opacity-50"
             >
               {isPending ? 'Saving…' : 'Save Currency'}
             </button>
@@ -200,7 +200,7 @@ export function SettingsForm({
               id="notify"
               checked={notifyOnEntry}
               onChange={(e) => setNotifyOnEntry(e.target.checked)}
-              className="rounded border-border text-teal focus:ring-teal"
+              className="rounded border-border text-gold focus:ring-gold"
             />
             <label htmlFor="notify" className="text-body text-secondary">
               Notify when monthly data is entered (placeholder; integrate with email later)

@@ -250,7 +250,7 @@ export function UserDetailPanel({
             key={t}
             type="button"
             onClick={() => setTab(t)}
-            className={`rounded-lg px-3 py-1.5 text-caption ${tab === t ? 'bg-teal/15 text-teal' : 'bg-elevated text-secondary'}`}
+            className={`rounded-lg px-3 py-1.5 text-caption ${tab === t ? 'bg-gold/15 text-gold' : 'bg-elevated text-secondary'}`}
           >
             {t[0].toUpperCase() + t.slice(1)}
           </button>
@@ -285,7 +285,7 @@ export function UserDetailPanel({
               className="mt-1 w-full rounded-lg border border-border bg-elevated px-3 py-2 text-body text-primary"
             />
           </label>
-          <button type="button" onClick={saveProfile} disabled={pending} className="rounded-lg bg-teal px-4 py-2 text-body font-medium text-background disabled:opacity-50">
+          <button type="button" onClick={saveProfile} disabled={pending} className="rounded-lg bg-gold px-4 py-2 text-body font-medium text-background disabled:opacity-50">
             Save Profile
           </button>
         </div>
@@ -302,7 +302,7 @@ export function UserDetailPanel({
             </button>
           </div>
           <PermissionsMatrix value={permissions} onChange={setPermissions} disabled={role === 'admin'} />
-          <button type="button" onClick={saveRolePermissions} disabled={pending} className="rounded-lg bg-teal px-4 py-2 text-body font-medium text-background disabled:opacity-50">
+          <button type="button" onClick={saveRolePermissions} disabled={pending} className="rounded-lg bg-gold px-4 py-2 text-body font-medium text-background disabled:opacity-50">
             Save Permissions
           </button>
         </div>
@@ -328,7 +328,7 @@ export function UserDetailPanel({
               ))}
             </tbody>
           </table>
-          <a href={`/audit?user=${user.id}`} className="block p-2 text-caption text-teal underline">
+          <a href={`/audit?user=${user.id}`} className="block p-2 text-caption text-gold underline">
             View Full History →
           </a>
         </div>
@@ -365,7 +365,7 @@ export function UserDetailPanel({
                   })
                 }
                 disabled={pending || !newPassword || newPassword.length < 6}
-                className="rounded-lg bg-teal px-4 py-2 text-caption font-medium text-background disabled:opacity-50"
+                className="rounded-lg bg-gold px-4 py-2 text-caption font-medium text-background disabled:opacity-50"
               >
                 Set Password
               </button>

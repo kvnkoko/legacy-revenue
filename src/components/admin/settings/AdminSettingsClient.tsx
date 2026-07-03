@@ -163,7 +163,7 @@ export function AdminSettingsClient({
   };
 
   const inputClass =
-    'w-full rounded-lg border border-border bg-card px-3 py-2.5 text-body text-primary focus:border-teal focus:ring-1 focus:ring-teal outline-none';
+    'w-full rounded-lg border border-border bg-card px-3 py-2.5 text-body text-primary focus:border-gold focus:ring-1 focus:ring-gold outline-none';
 
   return (
     <div className="space-y-2">
@@ -172,12 +172,12 @@ export function AdminSettingsClient({
         return (
           <section
             key={id}
-            className="rounded-xl border border-border bg-card overflow-hidden transition-all hover:border-teal/40"
+            className="rounded-xl border border-border bg-card overflow-hidden transition-all hover:border-gold/40"
           >
             <button
               type="button"
               onClick={() => setOpenPanel(isOpen ? null : id)}
-              className="flex w-full items-center justify-between gap-3 p-5 text-left transition-colors hover:bg-elevated/50 focus:outline-none focus:ring-2 focus:ring-teal/30 focus:ring-inset"
+              className="flex w-full items-center justify-between gap-3 p-5 text-left transition-colors hover:bg-elevated/50 focus:outline-none focus:ring-2 focus:ring-gold/30 focus:ring-inset"
             >
               <div>
                 <h2 className="text-body font-semibold text-primary">{title}</h2>
@@ -244,7 +244,7 @@ export function AdminSettingsClient({
                     type="button"
                     onClick={handleSaveOrganization}
                     disabled={pending}
-                    className="rounded-lg bg-teal px-5 py-2.5 text-body font-medium text-background hover:opacity-90 disabled:opacity-50 transition"
+                    className="rounded-lg bg-gold px-5 py-2.5 text-body font-medium text-background hover:opacity-90 disabled:opacity-50 transition"
                   >
                     {pending ? 'Saving…' : 'Save organization settings'}
                   </button>
@@ -262,7 +262,7 @@ export function AdminSettingsClient({
                     type="button"
                     onClick={handleSavePermissions}
                     disabled={pending}
-                    className="rounded-lg bg-teal px-5 py-2.5 text-body font-medium text-background hover:opacity-90 disabled:opacity-50 transition"
+                    className="rounded-lg bg-gold px-5 py-2.5 text-body font-medium text-background hover:opacity-90 disabled:opacity-50 transition"
                   >
                     {pending ? 'Saving…' : 'Save default permissions'}
                   </button>
@@ -300,7 +300,7 @@ export function AdminSettingsClient({
                     type="button"
                     onClick={handleSaveSession}
                     disabled={pending}
-                    className="rounded-lg bg-teal px-5 py-2.5 text-body font-medium text-background hover:opacity-90 disabled:opacity-50 transition"
+                    className="rounded-lg bg-gold px-5 py-2.5 text-body font-medium text-background hover:opacity-90 disabled:opacity-50 transition"
                   >
                     {pending ? 'Saving…' : 'Save session & audit policy'}
                   </button>
@@ -321,7 +321,7 @@ export function AdminSettingsClient({
                           key={value}
                           className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors ${
                             duplicateMonthBehavior === value
-                              ? 'border-teal bg-teal/10'
+                              ? 'border-gold bg-gold/10'
                               : 'border-border bg-card hover:border-border-hover'
                           }`}
                         >
@@ -331,7 +331,7 @@ export function AdminSettingsClient({
                             value={value}
                             checked={duplicateMonthBehavior === value}
                             onChange={() => setDuplicateMonthBehavior(value)}
-                            className="mt-0.5 h-4 w-4 border-border text-teal focus:ring-teal"
+                            className="mt-0.5 h-4 w-4 border-border text-gold focus:ring-gold"
                           />
                           <div>
                             <span className="text-body font-medium text-primary">{label}</span>
@@ -345,7 +345,7 @@ export function AdminSettingsClient({
                     type="button"
                     onClick={handleSaveDataEntry}
                     disabled={pending}
-                    className="rounded-lg bg-teal px-5 py-2.5 text-body font-medium text-background hover:opacity-90 disabled:opacity-50 transition"
+                    className="rounded-lg bg-gold px-5 py-2.5 text-body font-medium text-background hover:opacity-90 disabled:opacity-50 transition"
                   >
                     {pending ? 'Saving…' : 'Save data entry rules'}
                   </button>

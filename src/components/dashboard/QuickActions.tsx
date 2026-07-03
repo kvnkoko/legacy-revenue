@@ -11,7 +11,7 @@ export function QuickActions() {
       {(perms.isAdmin || perms.can.enterData) && (
         <Link
           href="/entry"
-          className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-teal text-background font-medium py-2 px-4 text-body hover:opacity-90 transition sm:w-auto"
+          className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-gold text-background font-medium py-2 px-4 text-body hover:opacity-90 transition sm:w-auto"
         >
           <PlusIcon weight="duotone" size={18} />
           Add Monthly Data
