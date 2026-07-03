@@ -81,18 +81,24 @@ export async function createStream(input: {
     throw new Error(error.message);
   }
 
+  // Every field gets import metadata at birth so the Excel importer (and the
+  // downloadable template) recognize it immediately — no separate "wire up
+  // import" step. The sheet name is the stream's own name; a brand-new stream
+  // gets its own tab, exactly like the legacy MPT/SZNB/YouTube sheets did.
   const fieldRows: Array<Record<string, unknown>> = [];
   if (input.groupDimensions) {
     const { rows, cols } = input.groupDimensions;
     let sort = 10;
     for (const r of rows) {
       for (const c of cols) {
+        const fieldSlug = `${slugify(r)}_${slugify(c)}`;
         fieldRows.push({
           stream_id: stream.id,
-          slug: `${slugify(r)}_${slugify(c)}`,
+          slug: fieldSlug,
           label: `${r.trim()} ${c.trim()}`,
           group_values: [r.trim(), c.trim()],
           sort,
+          attributes: { import: { sheet: name, column_keys: [fieldSlug] } },
         });
         sort += 10;
       }
@@ -101,11 +107,13 @@ export async function createStream(input: {
     (input.fields ?? []).forEach((label, i) => {
       const trimmed = label.trim();
       if (!trimmed) return;
+      const fieldSlug = slugify(trimmed);
       fieldRows.push({
         stream_id: stream.id,
-        slug: slugify(trimmed),
+        slug: fieldSlug,
         label: trimmed,
         sort: (i + 1) * 10,
+        attributes: { import: { sheet: name, column_keys: [fieldSlug] } },
       });
     });
   }
@@ -190,6 +198,28 @@ export async function createField(input: {
   const { supabase } = await getConfigContext();
   const label = input.label.trim();
   if (!label) throw new Error('Field label is required.');
+
+  // A new column on an EXISTING stream must import under the same sheet as
+  // its siblings (e.g. adding "Apple Music" to the "SZNB" sheet's tab), so
+  // accountants can drop it straight into their next Excel upload. Fall back
+  // to the stream's own name if it has no fields yet.
+  const { data: sibling } = await supabase
+    .from('stream_fields')
+    .select('attributes')
+    .eq('stream_id', input.streamId)
+    .not('attributes->import->sheet', 'is', null)
+    .limit(1)
+    .maybeSingle();
+  let sheetName = (sibling?.attributes as { import?: { sheet?: string } } | undefined)?.import?.sheet;
+  if (!sheetName) {
+    const { data: stream } = await supabase
+      .from('revenue_streams')
+      .select('name')
+      .eq('id', input.streamId)
+      .single();
+    sheetName = stream?.name ?? label;
+  }
+
   const { data: maxSort } = await supabase
     .from('stream_fields')
     .select('sort')
@@ -197,14 +227,18 @@ export async function createField(input: {
     .order('sort', { ascending: false })
     .limit(1)
     .maybeSingle();
+
+  const fieldSlug = input.groupValues
+    ? `${slugify(input.groupValues[0])}_${slugify(input.groupValues[1])}`
+    : slugify(label);
+
   const { error } = await supabase.from('stream_fields').insert({
     stream_id: input.streamId,
-    slug: input.groupValues
-      ? `${slugify(input.groupValues[0])}_${slugify(input.groupValues[1])}`
-      : slugify(label),
+    slug: fieldSlug,
     label,
     group_values: input.groupValues ?? null,
     sort: Number(maxSort?.sort ?? 0) + 10,
+    attributes: { import: { sheet: sheetName, column_keys: [fieldSlug] } },
   });
   if (error) {
     if (error.code === '23505') throw new Error(`A field with that name already exists in this stream.`);
@@ -221,7 +255,30 @@ export async function updateField(input: {
 }) {
   const { supabase } = await getConfigContext();
   const patch: Record<string, unknown> = {};
-  if (input.label !== undefined) patch.label = input.label.trim();
+  if (input.label !== undefined) {
+    const label = input.label.trim();
+    patch.label = label;
+
+    // Recognize the new label as an import column too, without dropping the
+    // old key — a spreadsheet exported before the rename should still import.
+    const { data: current } = await supabase
+      .from('stream_fields')
+      .select('slug, attributes')
+      .eq('id', input.id)
+      .single();
+    if (current) {
+      const attrs = (current.attributes as { import?: { sheet?: string; column_keys?: string[] } }) ?? {};
+      if (attrs.import) {
+        const newKey = label
+          .toLowerCase()
+          .trim()
+          .replace(/[^a-z0-9]+/g, '_')
+          .replace(/^_+|_+$/g, '');
+        const keys = new Set([...(attrs.import.column_keys ?? [current.slug]), newKey]);
+        patch.attributes = { ...attrs, import: { ...attrs.import, column_keys: Array.from(keys) } };
+      }
+    }
+  }
   if (input.sort !== undefined) patch.sort = input.sort;
   if (input.isActive !== undefined) patch.is_active = input.isActive;
   const { error } = await supabase.from('stream_fields').update(patch).eq('id', input.id);

@@ -15,15 +15,19 @@ export function normalizeKey(key: string): string {
   return key.toLowerCase().trim().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
 }
 
-/** Legacy sheets that mirror derived/summary data and are only verified. */
-const VERIFY_SHEETS: Record<string, string> = {
-  ringtune: 'ringtune',
-  eauc: 'eauc',
-  combo: 'combo',
-  local: 'local',
-  international: 'international',
-  revenue: 'summary',
-};
+/** Sheet historically named "Revenue" mirrors the summary pivot. */
+const SUMMARY_SHEET_ALIAS = 'revenue';
+
+/** Any derived stream (seeded or created later) whose sheet is verify-only:
+ *  values are checked against the computed total, never written. */
+function resolveVerifySlug(config: StreamConfig, sheetName: string): string | null {
+  const normalized = normalizeKey(sheetName);
+  if (normalized === SUMMARY_SHEET_ALIAS) return 'summary';
+  const derived = config.streams.find(
+    (s) => s.kind === 'derived' && (normalizeKey(s.slug) === normalized || normalizeKey(s.name) === normalized)
+  );
+  return derived?.slug ?? null;
+}
 
 export type WritableColumn = {
   field: FieldDef;
@@ -73,7 +77,7 @@ export function resolveSheetPlan(config: StreamConfig, sheetName: string): Sheet
     }
   }
 
-  const verifyStreamSlug = VERIFY_SHEETS[normalizeKey(sheetName)] ?? null;
+  const verifyStreamSlug = resolveVerifySlug(config, sheetName);
   const mptStream = config.streams.find((s) => s.slug === 'mpt');
   const mptPositional = Boolean(
     mptStream && writable.some((w) => w.field.streamId === mptStream.id)

@@ -7,18 +7,25 @@ import { toast } from 'sonner';
 import { formatMMK } from '@/lib/utils';
 import { importExcelAction } from '@/app/(dashboard)/import/actions';
 import { createClient } from '@/lib/supabase/client';
-import { fetchStreamConfig } from '@/lib/streams/shared';
+import { fetchStreamConfig, fetchStreamMatrix } from '@/lib/streams/shared';
 import { buildTemplateSpec } from '@/lib/streams/import-map';
 
 type ParsedSheet = { name: string; rows: Record<string, unknown>[] };
+type ExportRange = 'all' | 'year' | 'custom';
 
-export function ImportExcelClient() {
+export function ImportExcelClient({ canExport = false }: { canExport?: boolean }) {
   const router = useRouter();
   const [drag, setDrag] = useState(false);
   const [parsed, setParsed] = useState<ParsedSheet[] | null>(null);
   const [filename, setFilename] = useState<string>('');
+  const [rawFile, setRawFile] = useState<File | null>(null);
   const [result, setResult] = useState<{ inserted: number; updated: number; warnings: string[] } | null>(null);
   const [loading, setLoading] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [exportRange, setExportRange] = useState<ExportRange>('all');
+  const [exportYear, setExportYear] = useState(String(new Date().getFullYear()));
+  const [exportStart, setExportStart] = useState('');
+  const [exportEnd, setExportEnd] = useState('');
 
   const handleFile = useCallback((file: File) => {
     if (!file.name.endsWith('.xlsx') && !file.name.endsWith('.xls')) {
@@ -26,6 +33,7 @@ export function ImportExcelClient() {
       return;
     }
     setFilename(file.name);
+    setRawFile(file);
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
@@ -73,10 +81,24 @@ export function ImportExcelClient() {
     }
     setResult(res);
     toast.success(`Imported: ${res.inserted} inserted, ${res.updated} updated`);
-    setParsed(null);
     if (res.warnings?.length) res.warnings.forEach((w) => toast.warning(w));
+
+    // Best-effort: keep the raw file for audit/reference; import already succeeded either way.
+    try {
+      const supabase = createClient();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (user && rawFile) {
+        await supabase.storage.from('imports').upload(`${user.id}/${Date.now()}-${filename}`, rawFile, { upsert: true });
+      }
+    } catch {
+      // Storage upload is best-effort; import already succeeded.
+    }
+
+    setParsed(null);
     router.refresh();
-  }, [parsed, filename, router]);
+  }, [parsed, filename, rawFile, router]);
 
   const downloadTemplate = useCallback(async () => {
     try {
@@ -93,6 +115,49 @@ export function ImportExcelClient() {
       toast.error('Failed to build template from stream config');
     }
   }, []);
+
+  // One sheet per entry stream, columns = current import keys (so the file
+  // re-imports cleanly) — always reflects whatever streams/fields exist right
+  // now, including ones added in Stream Management since the last export.
+  const handleExport = useCallback(async () => {
+    setExporting(true);
+    try {
+      const supabase = createClient();
+      const config = await fetchStreamConfig(supabase);
+      const entryStreams = config.streams.filter((s) => s.kind === 'entry' && s.isActive);
+      const monthFilter = (month: string) => {
+        if (exportRange === 'year') return month.startsWith(`${exportYear}-`);
+        if (exportRange === 'custom') {
+          if (!exportStart || !exportEnd) return true;
+          return month >= `${exportStart}-01` && month <= `${exportEnd}-01`;
+        }
+        return true;
+      };
+      const wb = XLSX.utils.book_new();
+      for (const stream of entryStreams) {
+        const matrix = await fetchStreamMatrix(supabase, config, stream.slug);
+        if (!matrix) continue;
+        const rows = matrix.rows.filter((r) => monthFilter(String(r.month)));
+        const aoa = [
+          ['month', ...matrix.columns.map((c) => {
+            const field = config.fields.find((f) => f.id === c.fieldId);
+            return field?.attributes.import?.column_keys?.[0] ?? c.slug;
+          })],
+          ...rows.map((r) => [r.month, ...matrix.columns.map((c) => Number(r[c.slug] ?? 0))]),
+        ];
+        const sheetName = matrix.columns[0]
+          ? config.fields.find((f) => f.id === matrix.columns[0].fieldId)?.attributes.import?.sheet ?? stream.name
+          : stream.name;
+        const ws = XLSX.utils.aoa_to_sheet(aoa);
+        XLSX.utils.book_append_sheet(wb, ws, sheetName.slice(0, 31));
+      }
+      XLSX.writeFile(wb, `legacy-revenue-export-${new Date().toISOString().slice(0, 10)}.xlsx`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Export failed');
+    } finally {
+      setExporting(false);
+    }
+  }, [exportRange, exportYear, exportStart, exportEnd]);
 
   return (
     <div className="space-y-6">
@@ -192,6 +257,47 @@ export function ImportExcelClient() {
             </ul>
           )}
         </div>
+      )}
+
+      {canExport && (
+        <section id="export" className="rounded-xl border border-border bg-card p-5">
+          <h2 className="text-body font-semibold text-primary">Export to Excel</h2>
+          <p className="mt-1 text-caption text-secondary">
+            One sheet per revenue stream, matching whatever streams and fields are configured right now.
+          </p>
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            <select
+              value={exportRange}
+              onChange={(e) => setExportRange(e.target.value as ExportRange)}
+              className="rounded border border-border bg-elevated px-2 py-1 text-caption text-primary"
+            >
+              <option value="all">All months</option>
+              <option value="year">Specific year</option>
+              <option value="custom">Custom range</option>
+            </select>
+            {exportRange === 'year' && (
+              <input
+                value={exportYear}
+                onChange={(e) => setExportYear(e.target.value)}
+                className="w-24 rounded border border-border bg-elevated px-2 py-1 text-caption text-primary"
+              />
+            )}
+            {exportRange === 'custom' && (
+              <>
+                <input type="month" value={exportStart} onChange={(e) => setExportStart(e.target.value)} className="rounded border border-border bg-elevated px-2 py-1 text-caption text-primary" />
+                <input type="month" value={exportEnd} onChange={(e) => setExportEnd(e.target.value)} className="rounded border border-border bg-elevated px-2 py-1 text-caption text-primary" />
+              </>
+            )}
+            <button
+              type="button"
+              onClick={handleExport}
+              disabled={exporting}
+              className="rounded-lg bg-gold px-4 py-2 text-body font-medium text-background hover:opacity-90 disabled:opacity-50"
+            >
+              {exporting ? 'Exporting…' : 'Export to Excel'}
+            </button>
+          </div>
+        </section>
       )}
     </div>
   );
