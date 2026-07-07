@@ -4,7 +4,7 @@ import { getServerPermissions } from '@/lib/authz/server';
 import { getStreamConfig } from '@/lib/streams/server';
 import { AccessDenied } from '@/components/authz/AccessDenied';
 import { getAppSettings } from '@/app/(dashboard)/admin/settings/actions';
-import { StreamEntryWizard, type MonthCoverage } from '@/components/entry/StreamEntryWizard';
+import { EntryWorkspace, type MonthCoverage } from '@/components/entry/EntryWorkspace';
 import { DeleteMonthButton } from '@/components/entry/DeleteMonthButton';
 
 export const dynamic = 'force-dynamic';
@@ -43,7 +43,7 @@ export default async function EntryPage({
       <div className="space-y-5">
         <div>
           <h1 className="text-title font-bold text-primary tracking-tight">Data Entry</h1>
-          <p className="text-body text-secondary mt-0.5">Add monthly revenue data step by step</p>
+          <p className="text-body text-secondary mt-0.5">Enter or update monthly revenue, one platform at a time</p>
         </div>
         <AccessDenied
           permissionName="can_enter_data"
@@ -136,9 +136,15 @@ export default async function EntryPage({
     <div className="space-y-5">
       <div>
         <h1 className="text-title font-bold text-primary tracking-tight">Data Entry</h1>
-        <p className="text-body text-secondary mt-0.5">Add monthly revenue data step by step</p>
+        <p className="text-body text-secondary mt-0.5">
+          Pick a month, open the platform you have numbers for, and save just that platform —
+          no need to fill everything at once.
+        </p>
       </div>
-      <StreamEntryWizard
+      {/* key forces a fresh mount when an Edit/View link targets a month, so
+          the workspace always opens exactly the month that was clicked. */}
+      <EntryWorkspace
+        key={`${selectedMonth ?? 'default'}-${viewOnly ? 'view' : 'edit'}`}
         config={config}
         initialByMonth={initialByMonth}
         defaultMonth={defaultMonth}
