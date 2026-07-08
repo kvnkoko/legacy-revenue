@@ -10,6 +10,28 @@ import type {
   StreamMatrix,
 } from './types';
 
+/**
+ * Reads EVERY row of a query, paging past PostgREST's 1000-row response cap.
+ * Revenue data grows one batch of rows per month, so any unbounded select on
+ * revenue_entries / v_stream_month_totals will silently drop the most recent
+ * months once the table passes 1000 rows — which reads back as "missing" data.
+ * Always route financial reads through this.
+ */
+export async function fetchAllRows<T>(
+  build: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>
+): Promise<T[]> {
+  const pageSize = 1000;
+  const all: T[] = [];
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await build(from, from + pageSize - 1);
+    if (error) throw new Error(error.message);
+    const rows = data ?? [];
+    all.push(...rows);
+    if (rows.length < pageSize) break;
+  }
+  return all;
+}
+
 /** Fallback palette for streams created without an explicit color. */
 export const STREAM_FALLBACK_COLORS = [
   '#d4af37', '#3b82f6', '#8b5cf6', '#f59e0b', '#10b981',
@@ -148,15 +170,17 @@ export async function fetchStreamMatrix(
     const fieldIds = columns.map((c) => c.fieldId).filter(Boolean) as string[];
     const idToSlug = new Map(columns.map((c) => [c.fieldId, c.slug]));
     if (fieldIds.length) {
-      let query = supabase
-        .from('revenue_entries')
-        .select('month, field_id, amount')
-        .in('field_id', fieldIds)
-        .order('month', { ascending: true });
-      if (fromMonth) query = query.gte('month', fromMonth);
-      const { data, error } = await query;
-      if (error) throw error;
-      for (const r of data ?? []) {
+      const data = await fetchAllRows<{ month: string; field_id: string; amount: number }>((from, to) => {
+        let query = supabase
+          .from('revenue_entries')
+          .select('month, field_id, amount')
+          .in('field_id', fieldIds)
+          .order('month', { ascending: true })
+          .range(from, to);
+        if (fromMonth) query = query.gte('month', fromMonth);
+        return query;
+      });
+      for (const r of data) {
         const row = ensureRow(String(r.month));
         const colSlug = idToSlug.get(String(r.field_id));
         if (!colSlug) continue;
@@ -166,15 +190,17 @@ export async function fetchStreamMatrix(
       }
     }
   } else {
-    let query = supabase
-      .from('v_derived_bucket_totals')
-      .select('month, bucket_slug, amount')
-      .eq('stream_id', stream.id)
-      .order('month', { ascending: true });
-    if (fromMonth) query = query.gte('month', fromMonth);
-    const { data, error } = await query;
-    if (error) throw error;
-    for (const r of data ?? []) {
+    const data = await fetchAllRows<{ month: string; bucket_slug: string; amount: number }>((from, to) => {
+      let query = supabase
+        .from('v_derived_bucket_totals')
+        .select('month, bucket_slug, amount')
+        .eq('stream_id', stream.id)
+        .order('month', { ascending: true })
+        .range(from, to);
+      if (fromMonth) query = query.gte('month', fromMonth);
+      return query;
+    });
+    for (const r of data) {
       const row = ensureRow(String(r.month));
       const amount = Number(r.amount ?? 0);
       row[String(r.bucket_slug)] = amount;

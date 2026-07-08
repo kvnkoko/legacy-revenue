@@ -6,6 +6,7 @@ import { AccessDenied } from '@/components/authz/AccessDenied';
 import { getAppSettings } from '@/app/(dashboard)/admin/settings/actions';
 import { EntryWorkspace, type MonthCoverage } from '@/components/entry/EntryWorkspace';
 import { DeleteMonthButton } from '@/components/entry/DeleteMonthButton';
+import { fetchAllRows } from '@/lib/streams/shared';
 
 export const dynamic = 'force-dynamic';
 
@@ -58,12 +59,20 @@ export default async function EntryPage({
   const selectedMonth = typeof searchParams?.month === 'string' ? searchParams.month : undefined;
   const viewOnly = searchParams?.view === '1';
 
-  const [config, entriesRes, summaryRes] = await Promise.all([
+  // Page through ALL entries — a plain select caps at 1000 rows, which would
+  // silently drop the most recent months once history passes ~1000 values and
+  // make saved data read back as empty. See fetchAllRows.
+  const [config, entries, summaryRes] = await Promise.all([
     getStreamConfig(),
-    supabase.from('revenue_entries').select('month, field_id, amount').order('month', { ascending: true }),
+    fetchAllRows<{ month: string; field_id: string; amount: number }>((from, to) =>
+      supabase
+        .from('revenue_entries')
+        .select('month, field_id, amount')
+        .order('month', { ascending: true })
+        .range(from, to)
+    ),
     supabase.from('v_revenue_summary_compat').select('month, total, updated_at').order('month', { ascending: true }),
   ]);
-  const entries = entriesRes.data ?? [];
   const summary = summaryRes.data ?? [];
 
   // Existing amounts per month, keyed by field id — the wizard's prefill.
@@ -92,7 +101,10 @@ export default async function EntryPage({
   }
 
   const currentMonth = monthKey(new Date());
-  const expectedMonths = monthRange('2025-01-01', currentMonth);
+  // Start the visible timeline at the earliest month that actually has data
+  // (e.g. Jan 2024), never later than Jan 2025, so no recorded month is hidden.
+  const rangeStart = existingMonths[0] && existingMonths[0] < '2025-01-01' ? existingMonths[0] : '2025-01-01';
+  const expectedMonths = monthRange(rangeStart, currentMonth);
   const stateFor = (month: string): MonthCoverage['state'] => {
     const covered = streamsWithData.get(month);
     if (!covered || covered.size === 0) return 'missing';

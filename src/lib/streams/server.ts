@@ -1,7 +1,7 @@
 import { cache } from 'react';
 import { createClient } from '@/lib/supabase/server';
 import type { StreamConfig, StreamMatrix } from './types';
-import { fetchStreamConfig, fetchStreamMatrix } from './shared';
+import { fetchAllRows, fetchStreamConfig, fetchStreamMatrix } from './shared';
 
 /** Full stream config, cached per request. */
 export const getStreamConfig = cache(async (): Promise<StreamConfig> => {
@@ -49,13 +49,14 @@ export async function getSummaryMatrix(
   }));
   const idToSlug = new Map(summaryStreams.map((s) => [s.id, s.slug]));
 
-  let query = supabase.from('v_stream_month_totals').select('month, stream_id, total');
-  if (opts.fromMonth) query = query.gte('month', opts.fromMonth);
-  const { data, error } = await query;
-  if (error) throw error;
+  const data = await fetchAllRows<{ month: string; stream_id: string; total: number }>((from, to) => {
+    let query = supabase.from('v_stream_month_totals').select('month, stream_id, total').range(from, to);
+    if (opts.fromMonth) query = query.gte('month', opts.fromMonth);
+    return query;
+  });
 
   const rowsByMonth = new Map<string, SummaryMatrixRow>();
-  for (const r of data ?? []) {
+  for (const r of data) {
     const slug = idToSlug.get(String(r.stream_id));
     if (!slug) continue;
     const month = String(r.month);
@@ -80,12 +81,13 @@ export async function getStreamTotals(
   const supabase = await createClient();
   const config = await getStreamConfig();
   const slugById = new Map(config.streams.map((s) => [s.id, s.slug]));
-  let query = supabase.from('v_stream_month_totals').select('month, stream_id, total');
-  if (opts.fromMonth) query = query.gte('month', opts.fromMonth);
-  const { data, error } = await query;
-  if (error) throw error;
+  const data = await fetchAllRows<{ month: string; stream_id: string; total: number }>((from, to) => {
+    let query = supabase.from('v_stream_month_totals').select('month, stream_id, total').range(from, to);
+    if (opts.fromMonth) query = query.gte('month', opts.fromMonth);
+    return query;
+  });
   const out: Record<string, Record<string, number>> = {};
-  for (const r of data ?? []) {
+  for (const r of data) {
     const slug = slugById.get(String(r.stream_id));
     if (!slug) continue;
     (out[slug] ??= {})[String(r.month)] = Number(r.total ?? 0);
