@@ -1,10 +1,18 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Area, AreaChart, Bar, BarChart, Brush, CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { Area, AreaChart, Bar, BarChart, Brush, CartesianGrid, Legend, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { format, parseISO } from 'date-fns';
 import { TimeRangeSelector } from '@/components/charts/TimeRangeSelector';
 import { filterMonthsByRange, formatMMK, rollingAverage, type TimeRangeKey } from '@/lib/utils';
+import {
+  ChartCard,
+  formatCompact,
+  groupSeriesTopN,
+  groupTopN,
+  tooltipStyle,
+  useChartTheme,
+} from '@/components/charts/chart-kit';
 
 type Row = Record<string, unknown>;
 type SummaryStream = { slug: string; name: string; color: string };
@@ -22,6 +30,7 @@ export function AnalyticsCharts({
   mpt: Row[];
   atom: Row[];
 }) {
+  const theme = useChartTheme();
   const [range, setRange] = useState<TimeRangeKey>('12M');
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
@@ -56,13 +65,20 @@ export function AnalyticsCharts({
     return { allTimeTotal, avg, best, worst };
   }, [summary]);
 
-  const share = useMemo(() => {
-    if (!filtered.length) return [];
-    const last = filtered[filtered.length - 1];
-    const total = Number(last.total ?? 0) || 1;
-    return streams
-      .map((s) => ({ name: s.name, value: (Number(last[s.slug] ?? 0) / total) * 100, color: s.color }))
-      .filter((s) => s.value > 0);
+  const periodAvg = useMemo(() => {
+    const totals = filtered.map((r) => Number(r.total ?? 0));
+    return totals.length ? totals.reduce((a, b) => a + b, 0) / totals.length : 0;
+  }, [filtered]);
+
+  // Composition over the SELECTED PERIOD (not a pie): ranked bars, top 8 + Other.
+  const composition = useMemo(() => {
+    const slices = groupTopN(
+      streams,
+      (s) => filtered.reduce((sum, r) => sum + Number(r[s.slug] ?? 0), 0),
+      8
+    );
+    const max = slices.length ? slices[0].value : 1;
+    return slices.map((s) => ({ ...s, widthPct: (s.value / max) * 100 }));
   }, [filtered, streams]);
 
   const telecom = useMemo(() => ringtune.map((r) => ({
@@ -85,12 +101,6 @@ export function AnalyticsCharts({
     EAUC: Number(row.eauc ?? 0),
     Combo: Number(row.combo ?? 0),
   })), [atom]);
-
-  const telecomVsDirect = useMemo(() => filtered.map((row) => ({
-    monthLabel: row.month ? format(parseISO(String(row.month)), 'MMM yy') : '',
-    Telecom: Number(row.ringtune ?? 0) + Number(row.eauc ?? 0) + Number(row.combo ?? 0),
-    Direct: Number(row.total ?? 0) - (Number(row.ringtune ?? 0) + Number(row.eauc ?? 0) + Number(row.combo ?? 0)),
-  })), [filtered]);
 
   const cumulative = useMemo(() => {
     const rows = [...summary].sort((a, b) => String(a.month).localeCompare(String(b.month)));
@@ -154,14 +164,14 @@ export function AnalyticsCharts({
         const pct = previous ? (delta / previous) * 100 : current > 0 ? 100 : 0;
         return { name: s.name, color: s.color, current, previous, delta, pct };
       })
-      .filter((s) => s.current > 0 || s.previous > 0);
+      .filter((s) => s.current > 0 || s.previous > 0)
+      .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
   }, [summary, streams]);
 
   const topMovers = useMemo(
     () => [...momComparison].sort((a, b) => Math.abs(b.pct) - Math.abs(a.pct)).slice(0, 3),
     [momComparison]
   );
-
 
   // How dependent are we on the biggest stream? 100 = perfectly even split.
   const concentration = useMemo(() => {
@@ -235,6 +245,11 @@ export function AnalyticsCharts({
     }));
   }, [summary, streams]);
 
+  const quarterlyGrouped = useMemo(
+    () => groupSeriesTopN(quarterly as Array<Record<string, unknown>>, streams, 6),
+    [quarterly, streams]
+  );
+
   // Best/worst month per stream + latest-month outlier flags (>2 std dev).
   const recordsAnomalies = useMemo(() => {
     const records = streams
@@ -292,301 +307,422 @@ export function AnalyticsCharts({
     return format(d, 'MMM yyyy');
   })();
 
+  const axisProps = { stroke: theme.axis, fontSize: 12, tickLine: false, axisLine: false } as const;
+  const tt = {
+    contentStyle: tooltipStyle(theme),
+    labelStyle: { color: theme.tooltip.text, fontWeight: 600 },
+    itemStyle: { color: theme.tooltip.text },
+  } as const;
+
   return (
-    <div className="space-y-8">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <TimeRangeSelector value={range} onChange={setRange} />
-        {range === 'CUSTOM' && (
-          <div className="flex gap-2">
-            <input type="month" value={customStart} onChange={(e) => setCustomStart(e.target.value)} className="rounded border border-border bg-elevated px-2 py-1 text-caption text-primary" />
-            <input type="month" value={customEnd} onChange={(e) => setCustomEnd(e.target.value)} className="rounded border border-border bg-elevated px-2 py-1 text-caption text-primary" />
+    <div className="space-y-10">
+      {/* ============ Controls + headline stats ============ */}
+      <div className="space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <TimeRangeSelector value={range} onChange={setRange} />
+          {range === 'CUSTOM' && (
+            <div className="flex gap-2">
+              <input type="month" value={customStart} onChange={(e) => setCustomStart(e.target.value)} className="rounded border border-border bg-elevated px-2 py-1 text-caption text-primary" />
+              <input type="month" value={customEnd} onChange={(e) => setCustomEnd(e.target.value)} className="rounded border border-border bg-elevated px-2 py-1 text-caption text-primary" />
+            </div>
+          )}
+        </div>
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+          <StatTile label="Best month ever" value={formatCompact(milestones.best.value)} sub={milestones.best.month ? format(parseISO(String(milestones.best.month)), 'MMMM yyyy') : '—'} accent />
+          <StatTile label="Average month" value={formatCompact(milestones.avg)} sub="all time" />
+          <StatTile label="All-time total" value={formatCompact(milestones.allTimeTotal)} sub={`${summary.length} months recorded`} />
+          <StatTile label="Worst month" value={formatCompact(milestones.worst.value)} sub={milestones.worst.month ? format(parseISO(String(milestones.worst.month)), 'MMMM yyyy') : '—'} />
+        </div>
+      </div>
+
+      {/* ============ Section: The big picture ============ */}
+      <div className="space-y-5">
+        <SectionHeader title="The big picture" subtitle="Where revenue has been and where it's heading" />
+        <ChartCard title="Monthly revenue" subtitle="Gold area = monthly total · dashed = 3-month average · thin line = period average">
+          <div className="h-80">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="goldFade" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#d4af37" stopOpacity={0.45} />
+                    <stop offset="100%" stopColor="#d4af37" stopOpacity={0.04} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke={theme.grid} vertical={false} />
+                <XAxis dataKey="monthLabel" {...axisProps} />
+                <YAxis {...axisProps} tickFormatter={(v) => formatCompact(v)} width={52} />
+                <Tooltip {...tt} formatter={(v: number, name: string) => [formatMMK(v), name === 'rolling3' ? '3M average' : 'Total']} />
+                <ReferenceLine y={periodAvg} stroke={theme.axis} strokeDasharray="2 6" strokeOpacity={0.7} />
+                <Area isAnimationActive={false} type="monotone" dataKey="total" name="total" stroke="#d4af37" strokeWidth={2.5} fill="url(#goldFade)" />
+                <Line isAnimationActive={false} type="monotone" dataKey="rolling3" stroke={theme.axis} strokeDasharray="5 4" strokeWidth={2} dot={false} />
+                {chartData.length > 18 && <Brush dataKey="monthLabel" height={16} stroke="#d4af37" travellerWidth={8} fill="transparent" />}
+              </AreaChart>
+            </ResponsiveContainer>
           </div>
-        )}
+        </ChartCard>
+        <ChartCard title="Cumulative growth" subtitle="Running total, with a 3-month projection (dashed)">
+          <div className="h-60">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={cumulative} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke={theme.grid} vertical={false} />
+                <XAxis dataKey="monthLabel" {...axisProps} />
+                <YAxis {...axisProps} tickFormatter={(v) => formatCompact(v)} width={52} />
+                <Tooltip {...tt} formatter={(v: number) => formatMMK(v)} />
+                <Line isAnimationActive={false} type="monotone" dataKey="cumulative" stroke="#d4af37" strokeWidth={2.5} dot={false} />
+                <Line isAnimationActive={false} type="monotone" dataKey="projected" stroke={theme.axis} strokeDasharray="5 4" strokeWidth={2} dot={false} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </ChartCard>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="rounded-xl border border-border bg-card p-5"><p className="text-secondary text-sm">Best Month Ever</p><p className="text-gold font-bold text-lg">{milestones.best.month ? format(parseISO(String(milestones.best.month)), 'MMM yyyy') : '—'}</p><p className="text-muted text-xs">{formatMMK(milestones.best.value)}</p></div>
-        <div className="rounded-xl border border-border bg-card p-5"><p className="text-secondary text-sm">Worst Month</p><p className="text-primary font-bold text-lg">{milestones.worst.month ? format(parseISO(String(milestones.worst.month)), 'MMM yyyy') : '—'}</p><p className="text-muted text-xs">{formatMMK(milestones.worst.value)}</p></div>
-        <div className="rounded-xl border border-border bg-card p-5"><p className="text-secondary text-sm">All-Time Total</p><p className="text-primary font-bold text-lg">{formatMMK(milestones.allTimeTotal)}</p></div>
-        <div className="rounded-xl border border-border bg-card p-5"><p className="text-secondary text-sm">Average Monthly Revenue</p><p className="text-primary font-bold text-lg">{formatMMK(milestones.avg)}</p></div>
+      {/* ============ Section: Where the money comes from ============ */}
+      <div className="space-y-5">
+        <SectionHeader title="Where the money comes from" subtitle="Composition over the selected period" />
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-5">
+          <ChartCard title="Streams ranked" subtitle="Share of revenue in the selected period" className="lg:col-span-3">
+            <ul className="space-y-3">
+              {composition.map((s) => (
+                <li key={s.slug}>
+                  <div className="mb-1 flex items-baseline justify-between gap-3">
+                    <span className="flex items-center gap-2 text-caption text-primary">
+                      <span className="h-2.5 w-2.5 rounded-full" style={{ background: s.color }} />
+                      {s.name}
+                    </span>
+                    <span className="tabular-nums text-caption text-secondary">
+                      <span className="font-semibold text-primary">{s.share.toFixed(1)}%</span>
+                      {' · '}{formatCompact(s.value)}
+                    </span>
+                  </div>
+                  <div className="h-2 overflow-hidden rounded-full bg-elevated">
+                    <div className="h-full rounded-full" style={{ width: `${s.widthPct}%`, background: s.color }} />
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </ChartCard>
+          <ChartCard title="Concentration" subtitle="How much rides on the biggest stream" className="lg:col-span-2">
+            {concentration ? (
+              <div className="space-y-5">
+                <div>
+                  <p className="text-caption text-secondary">Biggest stream (latest month)</p>
+                  <p className="mt-0.5 text-title font-bold" style={{ color: concentration.top.color }}>
+                    {concentration.top.name}
+                  </p>
+                  <p className="text-body text-primary">
+                    <span className="text-display font-bold tabular-nums">{concentration.topShare.toFixed(0)}%</span>
+                    <span className="text-caption text-secondary"> of revenue</span>
+                  </p>
+                </div>
+                <div>
+                  <div className="flex items-baseline justify-between">
+                    <p className="text-caption text-secondary">Diversification score</p>
+                    <p className="tabular-nums text-body font-bold text-primary">
+                      {concentration.score.toFixed(0)}<span className="text-micro text-muted">/100</span>
+                      {concentration.scoreDelta != null && (
+                        <span className={`ml-2 text-micro ${concentration.scoreDelta >= 0 ? 'text-gold' : 'text-red-400'}`}>
+                          {concentration.scoreDelta >= 0 ? '▲' : '▼'} {Math.abs(concentration.scoreDelta).toFixed(1)}
+                        </span>
+                      )}
+                    </p>
+                  </div>
+                  <div className="mt-2 h-2 overflow-hidden rounded-full bg-elevated">
+                    <div className="h-full rounded-full bg-gold" style={{ width: `${concentration.score}%` }} />
+                  </div>
+                  <p className="mt-3 text-caption text-secondary">
+                    {concentration.topShare > 60
+                      ? `⚠ Over ${concentration.topShare.toFixed(0)}% of revenue comes from one stream — a dip in ${concentration.top.name} would hit the total hard.`
+                      : 'Revenue is reasonably spread out; no single stream dominates dangerously.'}
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <p className="text-caption text-secondary">Needs at least one month of data.</p>
+            )}
+          </ChartCard>
+        </div>
       </div>
 
-      {momComparison.length > 0 && (
-        <div className="rounded-xl border border-border bg-card p-6">
-          <h2 className="text-lg font-semibold text-primary mb-1">Month-over-Month by Stream</h2>
-          <p className="text-caption text-secondary mb-4">Latest recorded month vs the month before.</p>
-          <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
-            {topMovers.map((m) => (
-              <div key={m.name} className="rounded-lg border border-border bg-elevated p-3">
-                <p className="text-caption text-secondary">Top mover</p>
-                <p className="text-body font-semibold" style={{ color: m.color }}>{m.name}</p>
-                <p className={`text-body font-bold ${m.pct >= 0 ? 'text-gold' : 'text-red-400'}`}>
-                  {m.pct >= 0 ? '+' : ''}{m.pct.toFixed(1)}%
+      {/* ============ Section: What's moving ============ */}
+      <div className="space-y-5">
+        <SectionHeader title="What's moving" subtitle="Month-over-month changes and momentum" />
+        {topMovers.length > 0 && (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            {topMovers.map((m, i) => (
+              <div key={m.name} className={`rounded-2xl border p-4 ${i === 0 ? 'border-gold/40 bg-gold/5' : 'border-border bg-card'}`}>
+                <p className="text-micro uppercase tracking-wide text-secondary">{i === 0 ? 'Biggest mover' : 'Mover'}</p>
+                <p className="mt-1 flex items-center gap-2 text-body font-semibold text-primary">
+                  <span className="h-2.5 w-2.5 rounded-full" style={{ background: m.color }} />
+                  {m.name}
                 </p>
+                <p className={`mt-1 text-title font-bold tabular-nums ${m.pct >= 0 ? 'text-gold' : 'text-red-400'}`}>
+                  {m.pct >= 0 ? '▲' : '▼'} {Math.abs(m.pct).toFixed(1)}%
+                </p>
+                <p className="text-micro text-secondary">{formatCompact(m.previous)} → {formatCompact(m.current)}</p>
               </div>
             ))}
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-body">
-              <thead>
-                <tr className="border-b border-border">
-                  <th className="p-2 text-left text-secondary">Stream</th>
-                  <th className="p-2 text-right text-secondary">This Month</th>
-                  <th className="p-2 text-right text-secondary">Last Month</th>
-                  <th className="p-2 text-right text-secondary">Change</th>
-                  <th className="p-2 text-right text-secondary">Change %</th>
-                </tr>
-              </thead>
-              <tbody>
-                {momComparison.map((m) => (
-                  <tr key={m.name} className="border-b border-border last:border-0">
-                    <td className="p-2 text-primary">
-                      <span className="mr-2 inline-block h-2 w-2 rounded-full" style={{ background: m.color }} />
-                      {m.name}
-                    </td>
-                    <td className="p-2 text-right text-primary">{formatMMK(m.current)}</td>
-                    <td className="p-2 text-right text-secondary">{formatMMK(m.previous)}</td>
-                    <td className={`p-2 text-right ${m.delta >= 0 ? 'text-gold' : 'text-red-400'}`}>{formatMMK(m.delta)}</td>
-                    <td className={`p-2 text-right ${m.pct >= 0 ? 'text-gold' : 'text-red-400'}`}>{m.pct >= 0 ? '+' : ''}{m.pct.toFixed(1)}%</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <div className="rounded-xl border border-border bg-card p-6">
-          <h2 className="text-lg font-semibold text-primary mb-1">Concentration &amp; Diversification</h2>
-          <p className="text-caption text-secondary mb-4">How much you rely on your biggest stream (latest month).</p>
-          {concentration ? (
-            <div className="space-y-4">
-              <div className="flex flex-wrap gap-4">
-                <div className="rounded-lg border border-border bg-elevated p-4">
-                  <p className="text-caption text-secondary">Biggest stream</p>
-                  <p className="text-body font-semibold" style={{ color: concentration.top.color }}>{concentration.top.name}</p>
-                  <p className="text-title font-bold text-primary">{concentration.topShare.toFixed(1)}%</p>
-                  <p className="text-micro text-muted">of the latest month&apos;s revenue</p>
-                </div>
-                <div className="rounded-lg border border-border bg-elevated p-4">
-                  <p className="text-caption text-secondary">Diversification score</p>
-                  <p className={`text-title font-bold ${concentration.score >= 50 ? 'text-gold' : 'text-amber-400'}`}>
-                    {concentration.score.toFixed(0)}<span className="text-caption text-muted"> / 100</span>
-                  </p>
-                  {concentration.scoreDelta != null && (
-                    <p className={`text-micro ${concentration.scoreDelta >= 0 ? 'text-gold' : 'text-red-400'}`}>
-                      {concentration.scoreDelta >= 0 ? '+' : ''}{concentration.scoreDelta.toFixed(1)} vs 3 months ago
-                    </p>
-                  )}
-                </div>
-              </div>
-              <p className="text-caption text-secondary">
-                {concentration.topShare > 60
-                  ? `⚠ Over ${concentration.topShare.toFixed(0)}% of revenue comes from one stream — a dip in ${concentration.top.name} would hit the total hard.`
-                  : `Revenue is reasonably spread out; no single stream dominates dangerously.`}
-              </p>
-            </div>
-          ) : (
-            <p className="text-secondary text-sm">Needs at least one month of data.</p>
-          )}
-        </div>
-
-        <div className="rounded-xl border border-border bg-card p-6">
-          <h2 className="text-lg font-semibold text-primary mb-1">Stream Momentum</h2>
-          <p className="text-caption text-secondary mb-4">Last 3 months vs the 3 months before — who&apos;s heating up.</p>
-          {momentum.length ? (
-            <div className="space-y-2">
+        )}
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+          <ChartCard title="Month-over-month by stream" subtitle="Latest month vs the month before, biggest change first">
+            <ul className="space-y-2">
+              {momComparison.map((m) => (
+                <li key={m.name} className="flex items-center gap-3">
+                  <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: m.color }} />
+                  <span className="w-32 truncate text-caption text-primary">{m.name}</span>
+                  <span className="ml-auto tabular-nums text-caption text-secondary">{formatCompact(m.current)}</span>
+                  <span className={`w-20 shrink-0 text-right tabular-nums text-caption font-semibold ${m.pct >= 0 ? 'text-gold' : 'text-red-400'}`}>
+                    {m.pct >= 0 ? '+' : ''}{m.pct.toFixed(1)}%
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </ChartCard>
+          <ChartCard title="Momentum" subtitle="Last 3 months vs the 3 before — who's heating up">
+            <ul className="space-y-2">
               {momentum.map((m) => (
-                <div key={m.name} className="flex items-center gap-3 rounded-lg border border-border bg-elevated px-3 py-2">
-                  <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: m.color }} />
-                  <span className="min-w-24 text-body text-primary">{m.name}</span>
-                  <span className={`text-body font-semibold ${m.pct >= 0 ? 'text-gold' : 'text-red-400'}`}>
+                <li key={m.name} className="flex items-center gap-3">
+                  <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: m.color }} />
+                  <span className="w-32 truncate text-caption text-primary">{m.name}</span>
+                  <span className={`tabular-nums text-caption font-semibold ${m.pct >= 0 ? 'text-gold' : 'text-red-400'}`}>
                     {m.pct >= 0 ? '▲' : '▼'} {Math.abs(m.pct).toFixed(1)}%
                   </span>
                   <span className="ml-auto text-micro text-secondary">
                     {m.up >= 2 ? `${m.up} months growing` : m.down >= 2 ? `${m.down} months declining` : 'steady'}
                   </span>
-                </div>
+                </li>
               ))}
-            </div>
-          ) : (
-            <p className="text-secondary text-sm">Needs a few months of data.</p>
-          )}
+            </ul>
+          </ChartCard>
         </div>
-      </div>
-
-      {quarterly.length > 1 && (
-        <div className="rounded-xl border border-border bg-card p-6">
-          <h2 className="text-lg font-semibold text-primary mb-1">Quarterly View</h2>
-          <p className="text-caption text-secondary mb-4">Totals by quarter, split by stream. Partial quarters are marked.</p>
-          <div className="h-72">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={quarterly}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#1e2535" />
-                <XAxis dataKey="quarter" stroke="#8892a4" fontSize={12} />
-                <YAxis stroke="#8892a4" fontSize={12} tickFormatter={(v) => `${(v / 1e6).toFixed(0)}M`} />
-                <Tooltip formatter={(v: number) => formatMMK(v)} contentStyle={{ backgroundColor: '#161b24', border: '1px solid #1e2535', borderRadius: 8 }} />
-                <Legend />
-                {streams.map((st) => (
-                  <Bar key={st.slug} dataKey={st.slug} name={st.name} stackId="q" fill={st.color} />
-                ))}
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-          <div className="mt-3 flex flex-wrap gap-2">
-            {quarterly.map((q) => (
-              <span key={String(q.quarter)} className="rounded-full border border-border px-2.5 py-1 text-micro text-secondary">
-                {String(q.quarter)}{Number(q.months) < 3 ? ` (${q.months} mo)` : ''}:{' '}
-                <span className="text-primary">{formatMMK(Number(q.total))}</span>
-                {q.qoq != null && (
-                  <span className={Number(q.qoq) >= 0 ? 'text-gold' : 'text-red-400'}>
-                    {' '}{Number(q.qoq) >= 0 ? '+' : ''}{Number(q.qoq).toFixed(1)}%
-                  </span>
-                )}
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <div className="rounded-xl border border-border bg-card p-6">
-        <h2 className="text-lg font-semibold text-primary mb-1">Records &amp; Anomalies</h2>
-        <p className="text-caption text-secondary mb-4">Each stream&apos;s best and worst month, plus automatic flags when the latest month looks unusual.</p>
         {recordsAnomalies.anomalies.length > 0 && (
-          <div className="mb-4 space-y-2">
+          <div className="space-y-2">
             {recordsAnomalies.anomalies.map((a) => (
-              <div key={a.name} className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-caption text-amber-200">
+              <div key={a.name} className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-caption text-amber-200">
                 ⚠ <span className="font-semibold">{a.name}</span> is unusually {a.direction === 'above' ? 'high' : 'low'} this month
                 ({formatMMK(a.latest)} vs a typical {formatMMK(a.mean)}). Double-check the entry — or celebrate if it&apos;s real.
               </div>
             ))}
           </div>
         )}
-        <div className="overflow-x-auto">
-          <table className="w-full text-body">
-            <thead>
-              <tr className="border-b border-border">
-                <th className="p-2 text-left text-secondary">Stream</th>
-                <th className="p-2 text-right text-secondary">Best Month</th>
-                <th className="p-2 text-right text-secondary">Record High</th>
-                <th className="p-2 text-right text-secondary">Worst Month</th>
-                <th className="p-2 text-right text-secondary">Record Low</th>
-              </tr>
-            </thead>
-            <tbody>
-              {recordsAnomalies.records.map((r) => (
-                <tr key={r.name} className="border-b border-border last:border-0">
-                  <td className="p-2 text-primary">
-                    <span className="mr-2 inline-block h-2 w-2 rounded-full" style={{ background: r.color }} />
-                    {r.name}
-                  </td>
-                  <td className="p-2 text-right text-secondary">{format(parseISO(r.best.month), 'MMM yyyy')}</td>
-                  <td className="p-2 text-right font-medium text-gold">{formatMMK(r.best.v)}</td>
-                  <td className="p-2 text-right text-secondary">{format(parseISO(r.worst.month), 'MMM yyyy')}</td>
-                  <td className="p-2 text-right text-primary">{formatMMK(r.worst.v)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
       </div>
 
-      <div className="rounded-xl border border-border bg-card p-6">
-        <h2 className="text-lg font-semibold text-primary mb-4">Monthly Revenue Trend</h2>
-        <div className="h-72">
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={chartData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#1e2535" />
-              <XAxis dataKey="monthLabel" stroke="#8892a4" fontSize={12} />
-              <YAxis stroke="#8892a4" fontSize={12} tickFormatter={(v) => `${(v / 1e6).toFixed(0)}M`} />
-              <Tooltip formatter={(v: number) => formatMMK(v)} contentStyle={{ backgroundColor: '#161b24', border: '1px solid #1e2535', borderRadius: 8 }} />
-              <Area type="monotone" dataKey="total" stroke="#d4af37" fill="#d4af37" fillOpacity={0.25} />
-              <Line type="monotone" dataKey="rolling3" stroke="#fff" strokeDasharray="4 4" dot={false} />
-              {chartData.length > 18 && <Brush dataKey="monthLabel" height={16} stroke="#d4af37" travellerWidth={8} />}
-            </AreaChart>
-          </ResponsiveContainer>
+      {/* ============ Section: Rhythm ============ */}
+      <div className="space-y-5">
+        <SectionHeader title="Rhythm" subtitle="Quarters, year-over-year and seasonality" />
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+          {quarterly.length > 1 && (
+            <ChartCard title="Quarterly totals" subtitle="Stacked by stream · partial quarters marked below">
+              <div className="h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={quarterlyGrouped.rows} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={theme.grid} vertical={false} />
+                    <XAxis dataKey="quarter" {...axisProps} />
+                    <YAxis {...axisProps} tickFormatter={(v) => formatCompact(v)} width={52} />
+                    <Tooltip {...tt} formatter={(v: number) => formatMMK(v)} />
+                    {quarterlyGrouped.series.map((st) => (
+                      <Bar isAnimationActive={false} key={st.slug} dataKey={st.slug} name={st.name} stackId="q" fill={st.color} radius={[0, 0, 0, 0]} maxBarSize={56} />
+                    ))}
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {quarterly.map((q) => (
+                  <span key={String(q.quarter)} className="rounded-full border border-border px-2.5 py-1 text-micro text-secondary">
+                    {String(q.quarter)}{Number(q.months) < 3 ? ` (${q.months} mo)` : ''}:{' '}
+                    <span className="text-primary">{formatCompact(Number(q.total))}</span>
+                    {q.qoq != null && (
+                      <span className={Number(q.qoq) >= 0 ? 'text-gold' : 'text-red-400'}>
+                        {' '}{Number(q.qoq) >= 0 ? '+' : ''}{Number(q.qoq).toFixed(1)}%
+                      </span>
+                    )}
+                  </span>
+                ))}
+              </div>
+            </ChartCard>
+          )}
+          <ChartCard title="Year over year" subtitle="Same month, this year vs last year">
+            {yoy.length === 0 ? (
+              <p className="text-caption text-secondary">Appears once two years share the same months of data.</p>
+            ) : (
+              <div className="h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={yoy} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={theme.grid} vertical={false} />
+                    <XAxis dataKey="monthLabel" {...axisProps} />
+                    <YAxis {...axisProps} tickFormatter={(v) => formatCompact(v)} width={52} />
+                    <Tooltip {...tt} formatter={(v: number) => formatMMK(v)} />
+                    <Legend />
+                    <Bar isAnimationActive={false} dataKey="previous" name="Previous year" fill={theme.grid} maxBarSize={22} radius={[3, 3, 0, 0]} />
+                    <Bar isAnimationActive={false} dataKey="current" name="Current year" fill="#d4af37" maxBarSize={22} radius={[3, 3, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+          </ChartCard>
         </div>
-        <p className="mt-2 text-caption text-muted">Trend line improves accuracy with more months of data.</p>
-      </div>
-
-      <div className="rounded-xl border border-border bg-card p-6">
-        <h2 className="text-lg font-semibold text-primary mb-4">Cumulative Revenue Growth</h2>
-        <div className="h-72">
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={cumulative}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#1e2535" />
-              <XAxis dataKey="monthLabel" stroke="#8892a4" fontSize={12} />
-              <YAxis stroke="#8892a4" fontSize={12} tickFormatter={(v) => `${(v / 1e6).toFixed(0)}M`} />
-              <Tooltip formatter={(v: number) => formatMMK(v)} contentStyle={{ backgroundColor: '#161b24', border: '1px solid #1e2535', borderRadius: 8 }} />
-              <Line type="monotone" dataKey="cumulative" stroke="#d4af37" dot={false} />
-              <Line type="monotone" dataKey="projected" stroke="#fff" strokeDasharray="4 4" dot={false} />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-
-      <div className="rounded-xl border border-border bg-card p-6">
-        <h2 className="text-lg font-semibold text-primary mb-4">Telecom Revenue (MPT + Atom + Ooredoo)</h2>
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-          <div className="h-64"><p className="mb-2 text-caption text-secondary">Ringtune Source Split</p><ResponsiveContainer width="100%" height="100%"><BarChart data={telecom}><CartesianGrid strokeDasharray="3 3" stroke="#1e2535" /><XAxis dataKey="monthLabel" stroke="#8892a4" fontSize={12} /><YAxis stroke="#8892a4" fontSize={12} tickFormatter={(v) => `${(v / 1e6).toFixed(0)}M`} /><Tooltip formatter={(v: number) => formatMMK(v)} contentStyle={{ backgroundColor: '#161b24', border: '1px solid #1e2535', borderRadius: 8 }} /><Bar dataKey="MPT" stackId="a" fill="#d4af37" /><Bar dataKey="Atom" stackId="a" fill="#3b82f6" /><Bar dataKey="Ooredoo" stackId="a" fill="#8b5cf6" /></BarChart></ResponsiveContainer></div>
-          <div className="h-64"><p className="mb-2 text-caption text-secondary">Telecom vs Direct Split</p><ResponsiveContainer width="100%" height="100%"><BarChart data={telecomVsDirect}><CartesianGrid strokeDasharray="3 3" stroke="#1e2535" /><XAxis dataKey="monthLabel" stroke="#8892a4" fontSize={12} /><YAxis stroke="#8892a4" fontSize={12} tickFormatter={(v) => `${(v / 1e6).toFixed(0)}M`} /><Tooltip formatter={(v: number) => formatMMK(v)} contentStyle={{ backgroundColor: '#161b24', border: '1px solid #1e2535', borderRadius: 8 }} /><Bar dataKey="Telecom" stackId="a" fill="#d4af37" /><Bar dataKey="Direct" stackId="a" fill="#3b82f6" /></BarChart></ResponsiveContainer></div>
-        </div>
-        <div className="mt-5 grid grid-cols-1 lg:grid-cols-2 gap-5">
-          <div className="h-64"><p className="mb-2 text-caption text-secondary">MPT Contribution</p><ResponsiveContainer width="100%" height="100%"><BarChart data={mptContribution}><CartesianGrid strokeDasharray="3 3" stroke="#1e2535" /><XAxis dataKey="monthLabel" stroke="#8892a4" fontSize={12} /><YAxis stroke="#8892a4" fontSize={12} tickFormatter={(v) => `${(v / 1e6).toFixed(0)}M`} /><Tooltip formatter={(v: number) => formatMMK(v)} contentStyle={{ backgroundColor: '#161b24', border: '1px solid #1e2535', borderRadius: 8 }} /><Bar dataKey="Ringtune" stackId="a" fill="#d4af37" /><Bar dataKey="EAUC" stackId="a" fill="#3b82f6" /><Bar dataKey="Combo" stackId="a" fill="#8b5cf6" /></BarChart></ResponsiveContainer></div>
-          <div className="h-64"><p className="mb-2 text-caption text-secondary">Atom Contribution</p><ResponsiveContainer width="100%" height="100%"><BarChart data={atomContribution}><CartesianGrid strokeDasharray="3 3" stroke="#1e2535" /><XAxis dataKey="monthLabel" stroke="#8892a4" fontSize={12} /><YAxis stroke="#8892a4" fontSize={12} tickFormatter={(v) => `${(v / 1e6).toFixed(0)}M`} /><Tooltip formatter={(v: number) => formatMMK(v)} contentStyle={{ backgroundColor: '#161b24', border: '1px solid #1e2535', borderRadius: 8 }} /><Bar dataKey="Ringtune" stackId="a" fill="#d4af37" /><Bar dataKey="EAUC" stackId="a" fill="#3b82f6" /><Bar dataKey="Combo" stackId="a" fill="#8b5cf6" /></BarChart></ResponsiveContainer></div>
-        </div>
-      </div>
-
-      <div className="rounded-xl border border-border bg-card p-6">
-        <h2 className="text-lg font-semibold text-primary mb-4">Year-over-Year Comparison</h2>
-        {yoy.length === 0 ? (
-          <p className="text-secondary text-sm">YoY comparison will appear once we have data from the same months next year.</p>
-        ) : (
-          <div className="h-72"><ResponsiveContainer width="100%" height="100%"><BarChart data={yoy}><CartesianGrid strokeDasharray="3 3" stroke="#1e2535" /><XAxis dataKey="monthLabel" stroke="#8892a4" fontSize={12} /><YAxis stroke="#8892a4" fontSize={12} tickFormatter={(v) => `${(v / 1e6).toFixed(0)}M`} /><Tooltip formatter={(v: number) => formatMMK(v)} contentStyle={{ backgroundColor: '#161b24', border: '1px solid #1e2535', borderRadius: 8 }} /><Legend /><Bar dataKey="current" name="Current Year" fill="#d4af37" /><Bar dataKey="previous" name="Previous Year" fill="#3b82f6" /></BarChart></ResponsiveContainer></div>
+        {seasonality.length > 0 && (
+          <ChartCard title="Seasonality" subtitle="Average revenue by calendar month — darker gold = stronger month">
+            <div className="grid grid-cols-3 gap-2 sm:grid-cols-6 lg:grid-cols-12">
+              {seasonality.map((s) => {
+                const intensity = milestones.best.value ? Math.min(s.avg / milestones.best.value, 1) : 0;
+                return (
+                  <div key={s.month} className="rounded-lg border border-border p-2 text-center" style={{ background: `rgba(212,175,55,${0.06 + intensity * 0.5})` }}>
+                    <p className="text-caption font-medium text-primary">{format(new Date(2025, s.month - 1, 1), 'MMM')}</p>
+                    <p className="tabular-nums text-micro text-secondary">{s.avg ? formatCompact(s.avg) : '—'}</p>
+                  </div>
+                );
+              })}
+            </div>
+          </ChartCard>
         )}
       </div>
 
-      <div className="rounded-xl border border-border bg-card p-6">
-        <h2 className="text-lg font-semibold text-primary mb-4">Stream Lifecycle Tracking</h2>
-        <div className="overflow-x-auto">
-          <table className="w-full text-body">
-            <thead><tr className="border-b border-border"><th className="p-2 text-left text-secondary">Stream</th><th className="p-2 text-left text-secondary">First Month</th><th className="p-2 text-left text-secondary">Months Active</th><th className="p-2 text-left text-secondary">All-Time Total</th><th className="p-2 text-left text-secondary">Trend</th></tr></thead>
-            <tbody>
-              {lifecycle.map((row) => (
-                <tr key={row.key} className="border-b border-border last:border-0">
-                  <td className="p-2 text-primary">{row.name}</td>
-                  <td className="p-2 text-secondary">{row.firstMonth === '—' ? '—' : format(parseISO(row.firstMonth), 'MMM yyyy')}</td>
-                  <td className="p-2 text-primary">{row.monthsActive}</td>
-                  <td className="p-2 text-primary">{formatMMK(row.allTimeTotal)}</td>
-                  <td className={`p-2 ${row.trend === 'growing' ? 'text-gold' : row.trend === 'declining' ? 'text-red-400' : 'text-secondary'}`}>{row.trend}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      {/* ============ Section: Records & stream health ============ */}
+      <div className="space-y-5">
+        <SectionHeader title="Records & stream health" subtitle="Highs, lows and each stream's life so far" />
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+          <ChartCard title="Records" subtitle="Each stream's best and worst month">
+            <div className="overflow-x-auto">
+              <table className="w-full text-caption">
+                <thead>
+                  <tr className="border-b border-border text-secondary">
+                    <th className="py-2 pr-2 text-left font-medium">Stream</th>
+                    <th className="px-2 py-2 text-right font-medium">Record high</th>
+                    <th className="px-2 py-2 text-right font-medium">Record low</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {recordsAnomalies.records.map((r) => (
+                    <tr key={r.name} className="border-b border-border last:border-0">
+                      <td className="py-2 pr-2 text-primary">
+                        <span className="mr-2 inline-block h-2 w-2 rounded-full" style={{ background: r.color }} />
+                        {r.name}
+                      </td>
+                      <td className="px-2 py-2 text-right">
+                        <span className="tabular-nums font-medium text-gold">{formatCompact(r.best.v)}</span>
+                        <span className="block text-micro text-muted">{format(parseISO(r.best.month), 'MMM yyyy')}</span>
+                      </td>
+                      <td className="px-2 py-2 text-right">
+                        <span className="tabular-nums text-primary">{formatCompact(r.worst.v)}</span>
+                        <span className="block text-micro text-muted">{format(parseISO(r.worst.month), 'MMM yyyy')}</span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </ChartCard>
+          <ChartCard title="Stream lifecycle" subtitle="How long each stream has been earning">
+            <div className="overflow-x-auto">
+              <table className="w-full text-caption">
+                <thead>
+                  <tr className="border-b border-border text-secondary">
+                    <th className="py-2 pr-2 text-left font-medium">Stream</th>
+                    <th className="px-2 py-2 text-left font-medium">Since</th>
+                    <th className="px-2 py-2 text-right font-medium">All-time</th>
+                    <th className="px-2 py-2 text-right font-medium">Trend</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {lifecycle.map((row) => (
+                    <tr key={row.key} className="border-b border-border last:border-0">
+                      <td className="py-2 pr-2 text-primary">{row.name}</td>
+                      <td className="px-2 py-2 text-secondary">
+                        {row.firstMonth === '—' ? '—' : format(parseISO(row.firstMonth), 'MMM yyyy')}
+                        <span className="block text-micro text-muted">{row.monthsActive} months</span>
+                      </td>
+                      <td className="px-2 py-2 text-right tabular-nums text-primary">{formatCompact(row.allTimeTotal)}</td>
+                      <td className="px-2 py-2 text-right">
+                        <span className={`rounded-full px-2 py-0.5 text-micro font-semibold uppercase ${
+                          row.trend === 'growing' ? 'bg-gold/15 text-gold' : row.trend === 'declining' ? 'bg-red-500/15 text-red-400' : 'bg-elevated text-secondary'
+                        }`}>
+                          {row.trend}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </ChartCard>
         </div>
       </div>
 
-      <div className="rounded-xl border border-border bg-card p-6">
-        <h2 className="text-lg font-semibold text-primary mb-4">Seasonality patterns become clearer with more data</h2>
-        {seasonality.length === 0 ? <p className="text-secondary text-sm">Seasonality heatmap appears after 12+ months of data.</p> : (
-          <div className="grid grid-cols-6 gap-2">
-            {seasonality.map((s) => {
-              const intensity = milestones.best.value ? Math.min(s.avg / milestones.best.value, 1) : 0;
-              return <div key={s.month} className="rounded border border-border p-2" style={{ background: `rgba(0,212,200,${0.1 + intensity * 0.6})` }}><p className="text-caption text-secondary">{format(new Date(2025, s.month - 1, 1), 'MMM')}</p><p className="text-micro text-primary">{formatMMK(s.avg)}</p></div>;
-            })}
-          </div>
-        )}
+      {/* ============ Section: Telecom deep dive ============ */}
+      <div className="space-y-5">
+        <SectionHeader title="Telecom deep dive" subtitle="MPT, Atom and Ooredoo under the hood" />
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+          <ChartCard title="Ringtune source split" subtitle="Which operator drives Ringtune">
+            <MiniStack data={telecom} keys={[['MPT', '#d4af37'], ['Atom', '#3b82f6'], ['Ooredoo', '#8b5cf6']]} theme={theme} axisProps={axisProps} tt={tt} />
+          </ChartCard>
+          <ChartCard title="Telecom vs direct" subtitle="Operator revenue vs everything else">
+            <MiniStack data={filtered.map((row) => ({
+              monthLabel: row.month ? format(parseISO(String(row.month)), 'MMM yy') : '',
+              Telecom: Number(row.ringtune ?? 0) + Number(row.eauc ?? 0) + Number(row.combo ?? 0),
+              Direct: Number(row.total ?? 0) - (Number(row.ringtune ?? 0) + Number(row.eauc ?? 0) + Number(row.combo ?? 0)),
+            }))} keys={[['Telecom', '#d4af37'], ['Direct', '#3b82f6']]} theme={theme} axisProps={axisProps} tt={tt} />
+          </ChartCard>
+          <ChartCard title="MPT contribution" subtitle="Ringtune / EAUC / Combo inside MPT">
+            <MiniStack data={mptContribution} keys={[['Ringtune', '#d4af37'], ['EAUC', '#3b82f6'], ['Combo', '#8b5cf6']]} theme={theme} axisProps={axisProps} tt={tt} />
+          </ChartCard>
+          <ChartCard title="Atom contribution" subtitle="Ringtune / EAUC / Combo inside Atom">
+            <MiniStack data={atomContribution} keys={[['Ringtune', '#d4af37'], ['EAUC', '#3b82f6'], ['Combo', '#8b5cf6']]} theme={theme} axisProps={axisProps} tt={tt} />
+          </ChartCard>
+        </div>
       </div>
 
-      <div className="rounded-xl border border-border bg-card p-6">
-        <h2 className="text-lg font-semibold text-primary mb-4">Stream share (current period)</h2>
-        {share.length ? (
-          <div className="h-64"><ResponsiveContainer width="100%" height="100%"><PieChart><Pie data={share} cx="50%" cy="50%" innerRadius={40} outerRadius={70} dataKey="value" nameKey="name">{share.map((s) => <Cell key={s.name} fill={s.color} />)}</Pie><Tooltip formatter={(v: number) => `${v.toFixed(1)}%`} contentStyle={{ backgroundColor: '#161b24', border: '1px solid #1e2535', borderRadius: 8 }} /><Legend /></PieChart></ResponsiveContainer></div>
-        ) : <p className="text-secondary text-sm">No stream breakdown for latest month.</p>}
-      </div>
+      <p className="text-caption text-muted">Last recorded month: {lastMonth ? format(parseISO(lastMonth), 'MMM yyyy') : '—'} · Next entry due: {nextDue}.</p>
+    </div>
+  );
+}
 
-      <p className="text-caption text-muted">Last updated: {lastMonth ? format(parseISO(lastMonth), 'MMM yyyy') : '—'}. Next entry due: {nextDue}.</p>
+function SectionHeader({ title, subtitle }: { title: string; subtitle: string }) {
+  return (
+    <div className="flex items-baseline gap-3 border-b border-border pb-2">
+      <h2 className="text-title font-bold tracking-tight text-primary">{title}</h2>
+      <p className="text-caption text-secondary">{subtitle}</p>
+    </div>
+  );
+}
+
+function StatTile({ label, value, sub, accent = false }: { label: string; value: string; sub?: string; accent?: boolean }) {
+  return (
+    <div className={`rounded-2xl border p-5 ${accent ? 'border-gold/40 bg-gold/5 shadow-glow-gold' : 'border-border bg-card'}`}>
+      <p className="text-micro uppercase tracking-wide text-secondary">{label}</p>
+      <p className={`mt-1 text-display font-bold tabular-nums ${accent ? 'text-gold' : 'text-primary'}`}>{value}</p>
+      {sub && <p className="text-micro text-muted">{sub}</p>}
+    </div>
+  );
+}
+
+function MiniStack({
+  data,
+  keys,
+  theme,
+  axisProps,
+  tt,
+}: {
+  data: Array<Record<string, unknown>>;
+  keys: Array<[string, string]>;
+  theme: ReturnType<typeof useChartTheme>;
+  axisProps: Record<string, unknown>;
+  tt: Record<string, unknown>;
+}) {
+  return (
+    <div className="h-56">
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={data} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke={theme.grid} vertical={false} />
+          <XAxis dataKey="monthLabel" {...axisProps} />
+          <YAxis {...axisProps} tickFormatter={(v: number) => formatCompact(v)} width={52} />
+          <Tooltip {...tt} formatter={(v: number) => formatMMK(v)} />
+          <Legend />
+          {keys.map(([name, color]) => (
+            <Bar isAnimationActive={false} key={name} dataKey={name} stackId="a" fill={color} maxBarSize={28} />
+          ))}
+        </BarChart>
+      </ResponsiveContainer>
     </div>
   );
 }

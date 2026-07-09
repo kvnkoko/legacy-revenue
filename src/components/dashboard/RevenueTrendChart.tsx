@@ -16,12 +16,19 @@ import { filterMonthsByRange, rollingAverage, type TimeRangeKey } from '@/lib/ut
 import { format, parseISO } from 'date-fns';
 import { TimeRangeSelector } from '@/components/charts/TimeRangeSelector';
 import { useCurrency } from '@/contexts/CurrencyContext';
+import {
+  formatCompact,
+  groupSeriesTopN,
+  tooltipStyle,
+  useChartTheme,
+} from '@/components/charts/chart-kit';
 
 type Row = { month: string; total?: number } & Record<string, unknown>;
 export type TrendStream = { slug: string; name: string; color: string };
 
 export function RevenueTrendChart({ data, streams }: { data: Row[]; streams: TrendStream[] }) {
   const { formatCurrency } = useCurrency();
+  const theme = useChartTheme();
   const [range, setRange] = useState<TimeRangeKey>('12M');
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
@@ -32,17 +39,24 @@ export function RevenueTrendChart({ data, streams }: { data: Row[]; streams: Tre
     [customEnd, customStart, data, range]
   );
 
+  // Stack only the top streams + a neutral "Other" so the bands stay readable
+  // no matter how many streams the team configures.
+  const { series, rows } = useMemo(
+    () => groupSeriesTopN(filtered as Array<Record<string, unknown>>, streams, 6),
+    [filtered, streams]
+  );
+
   const totals = filtered.map((d) => Number(d.total ?? 0));
   const rolling3 = rollingAverage(totals, 3);
-  const chartData = filtered.map((d, idx) => ({
+  const chartData = rows.map((d, idx) => ({
     ...d,
-    monthLabel: d.month ? format(parseISO(d.month), filtered.length > 24 ? "MMM ''yy" : 'MMM yyyy') : '',
+    monthLabel: d.month ? format(parseISO(String(d.month)), filtered.length > 24 ? "MMM ''yy" : 'MMM yyyy') : '',
     rolling3: rolling3[idx],
   }));
 
   if (!chartData.length) {
     return (
-      <div className="h-64 flex items-center justify-center text-secondary">
+      <div className="flex h-64 items-center justify-center text-secondary">
         No data yet. Add monthly data or import Excel.
       </div>
     );
@@ -66,32 +80,44 @@ export function RevenueTrendChart({ data, streams }: { data: Row[]; streams: Tre
       <div className="h-64">
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#1e2535" />
-            <XAxis dataKey="monthLabel" stroke="#8892a4" fontSize={12} tickLine={false} />
-            <YAxis stroke="#8892a4" fontSize={12} tickLine={false} tickFormatter={(v) => `${(v / 1e6).toFixed(0)}M`} />
+            <CartesianGrid strokeDasharray="3 3" stroke={theme.grid} vertical={false} />
+            <XAxis dataKey="monthLabel" stroke={theme.axis} fontSize={12} tickLine={false} axisLine={false} />
+            <YAxis stroke={theme.axis} fontSize={12} tickLine={false} axisLine={false} tickFormatter={(v) => formatCompact(v)} width={52} />
             <Tooltip
-              contentStyle={{ backgroundColor: '#161b24', border: '1px solid #1e2535', borderRadius: 8 }}
+              contentStyle={tooltipStyle(theme)}
               labelFormatter={(_, payload) => payload?.[0]?.payload?.monthLabel}
-              formatter={(value: number) => [formatCurrency(value), '']}
-              labelStyle={{ color: '#f0f4ff' }}
-              itemStyle={{ color: '#f0f4ff' }}
+              formatter={(value: number, name: string) => [formatCurrency(value), name]}
+              labelStyle={{ color: theme.tooltip.text, fontWeight: 600 }}
+              itemStyle={{ color: theme.tooltip.text }}
             />
-            {streams.map(({ slug, name, color }) => (
-              <Area
+            {series.map(({ slug, name, color }) => (
+              <Area isAnimationActive={false}
                 key={slug}
                 type="monotone"
                 dataKey={slug}
                 name={name}
                 stackId="1"
                 stroke={color}
+                strokeWidth={1.5}
                 fill={color}
-                fillOpacity={0.7}
+                fillOpacity={0.55}
               />
             ))}
-            {showRolling && <Line type="monotone" dataKey="rolling3" stroke="#ffffff" strokeDasharray="4 4" dot={false} name="3M average" />}
-            {chartData.length > 18 && <Brush dataKey="monthLabel" height={18} stroke="#d4af37" travellerWidth={8} />}
+            {showRolling && (
+              <Line isAnimationActive={false} type="monotone" dataKey="rolling3" stroke={theme.axis} strokeDasharray="5 4" strokeWidth={2} dot={false} name="3M average" />
+            )}
+            {chartData.length > 18 && <Brush dataKey="monthLabel" height={18} stroke="#d4af37" travellerWidth={8} fill="transparent" />}
           </AreaChart>
         </ResponsiveContainer>
+      </div>
+      {/* Compact legend, ranked like the stack */}
+      <div className="flex flex-wrap gap-x-4 gap-y-1">
+        {series.map((s) => (
+          <span key={s.slug} className="inline-flex items-center gap-1.5 text-micro text-secondary">
+            <span className="h-2 w-2 rounded-full" style={{ background: s.color }} />
+            {s.name}
+          </span>
+        ))}
       </div>
     </div>
   );

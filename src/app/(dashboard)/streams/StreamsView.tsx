@@ -216,7 +216,7 @@ export function StreamsView() {
                   />
                   <Legend />
                   {columns.map((c, i) => (
-                    <Bar
+                    <Bar isAnimationActive={false}
                       key={c.slug}
                       dataKey={c.slug}
                       name={c.label}
