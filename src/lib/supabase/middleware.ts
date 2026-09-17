@@ -1,5 +1,7 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
+import { normalizePermissions } from '@/lib/authz/utils';
+import type { PermissionKey, Role } from '@/lib/authz/types';
 
 export async function updateSession(request: NextRequest) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -30,7 +32,7 @@ export async function updateSession(request: NextRequest) {
   );
   const { data: { user } } = await supabase.auth.getUser();
   type MiddlewareProfile = {
-    role: string;
+    role: Role;
     status: 'active' | 'suspended' | 'pending';
     permissions: Record<string, boolean> | null;
   };
@@ -51,33 +53,23 @@ export async function updateSession(request: NextRequest) {
         .maybeSingle();
       profile = (byLegacy.data as MiddlewareProfile | null) ?? null;
     }
-    if (profile == null && (user.user_metadata?.role === 'admin' || user.email === 'admin@legacy.com')) {
-      profile = {
-        role: 'admin',
-        status: 'active',
-        permissions: {
-          can_enter_data: true,
-          can_edit_data: true,
-          can_delete_data: true,
-          can_import_excel: true,
-          can_export_data: true,
-          can_view_analytics: true,
-          can_view_streams: true,
-          can_view_audit_log: true,
-          can_manage_users: true,
-          can_manage_settings: true,
-          can_view_mpt_detail: true,
-          can_view_sznb: true,
-          can_view_international: true,
-          can_view_telecom: true,
-          can_view_flow: true,
-        },
-      };
-    }
+    // No synthetic-admin fallback. user_metadata is writable by the user
+    // themselves, so trusting user_metadata.role (or a hardcoded email) would
+    // let any signed-up account grant itself admin routes. Access comes only
+    // from a real user_profiles row; RLS remains the ultimate authority.
   }
 
-  const can = (key: string) =>
-    profile?.role === 'admin' || Boolean((profile?.permissions as Record<string, boolean> | null)?.[key]);
+  // Resolve exactly like the app does (role defaults + per-user overrides).
+  // Reading the raw permissions column here was the cause of users who had
+  // been given a role still being bounced off their own tabs: the column is
+  // empty for role-based users, so every check silently returned false.
+  const effective = profile ? normalizePermissions(profile.role, profile.permissions) : null;
+  // When the profile row could not be read at all (transient DB/network error,
+  // or a restrictive RLS predicate) we do NOT redirect: every protected page
+  // re-checks with getServerPermissions() and RLS is the real authority, so
+  // failing open here avoids locking legitimate admins out of their own portal
+  // while still never granting data access.
+  const can = (key: PermissionKey) => (effective ? Boolean(effective[key]) : true);
   const isAuthPage =
     request.nextUrl.pathname === '/login' || request.nextUrl.pathname === '/signup';
   if (!user && !isAuthPage && request.nextUrl.pathname !== '/') {

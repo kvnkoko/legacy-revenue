@@ -8,6 +8,13 @@ import { ADMIN_PERMISSIONS, STAFF_DEFAULT_PERMISSIONS } from '@/lib/permission-p
 
 type AuthzContextValue = ReturnType<typeof profileToUserPermissions> & {
   refreshProfile: () => Promise<void>;
+  /**
+   * Set when the profile row could not be read (network/RLS/DB error) as
+   * opposed to genuinely not existing. Without this, a failed read silently
+   * downgraded the person to viewer defaults and their tabs disappeared with
+   * no explanation — the "my role isn't working" reports.
+   */
+  profileError: string | null;
 };
 
 const AuthzContext = createContext<AuthzContextValue | null>(null);
@@ -38,9 +45,11 @@ export function AuthzProvider({ children }: { children: React.ReactNode }) {
   const supabase = createClient();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [profileError, setProfileError] = useState<string | null>(null);
 
   const loadProfile = async () => {
     setLoading(true);
+    setProfileError(null);
     const { data: auth } = await supabase.auth.getUser();
     const user = auth.user;
     if (!user) {
@@ -49,12 +58,21 @@ export function AuthzProvider({ children }: { children: React.ReactNode }) {
       return;
     }
     let data: Record<string, unknown> | null = null;
+    let readFailed = false;
     const byId = await supabase.from('user_profiles').select('*').eq('id', user.id).maybeSingle();
     if (!byId.error) {
       data = (byId.data as Record<string, unknown> | null) ?? null;
     } else {
       const byLegacy = await supabase.from('user_profiles').select('*').eq('user_id', user.id).maybeSingle();
       data = (byLegacy.data as Record<string, unknown> | null) ?? null;
+      // Both lookups failed — this is an error, not "this person is a viewer".
+      if (byLegacy.error) readFailed = true;
+    }
+
+    if (readFailed) {
+      setProfileError(
+        "We could not load your account's access level. Your screen may be missing sections. Please try again."
+      );
     }
 
     if (!data) {
@@ -90,8 +108,9 @@ export function AuthzProvider({ children }: { children: React.ReactNode }) {
     return {
       ...profileToUserPermissions(profile, loading),
       refreshProfile: loadProfile,
+      profileError,
     };
-  }, [profile, loading]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [profile, loading, profileError]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return <AuthzContext.Provider value={value}>{children}</AuthzContext.Provider>;
 }
@@ -102,6 +121,7 @@ export function useAuthzContext() {
     return {
       ...profileToUserPermissions(null, true),
       refreshProfile: async () => {},
+      profileError: null,
     };
   }
   return ctx;

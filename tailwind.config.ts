@@ -27,7 +27,15 @@ const config: Config = {
         green: 'rgb(var(--color-green) / <alpha-value>)',
       },
       fontFamily: {
-        sans: ['Satoshi', 'system-ui', 'sans-serif'],
+        sans: [
+          'var(--font-satoshi)',
+          'Satoshi',
+          'system-ui',
+          '-apple-system',
+          'Segoe UI',
+          'Roboto',
+          'sans-serif',
+        ],
       },
       fontSize: {
         'display': ['2rem', { lineHeight: '1.2' }],

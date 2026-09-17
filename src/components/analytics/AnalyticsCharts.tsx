@@ -13,6 +13,7 @@ import {
   tooltipStyle,
   useChartTheme,
 } from '@/components/charts/chart-kit';
+import { Explain, plainChange, plainMoney } from '@/components/analytics/plain-language';
 
 type Row = Record<string, unknown>;
 type SummaryStream = { slug: string; name: string; color: string };
@@ -307,6 +308,30 @@ export function AnalyticsCharts({
     return format(d, 'MMM yyyy');
   })();
 
+  // Values used by the plain-English explanations under each chart.
+  const latestTotal = Number(summary[summary.length - 1]?.total ?? 0);
+  const prevTotal = Number(summary[summary.length - 2]?.total ?? 0);
+  const latestVsPrevPct = prevTotal ? ((latestTotal - prevTotal) / prevTotal) * 100 : 0;
+  const latestVsAvgPct = periodAvg ? ((latestTotal - periodAvg) / periodAvg) * 100 : 0;
+  const lastMonthLabel = summary[summary.length - 1]?.month
+    ? format(parseISO(String(summary[summary.length - 1].month)), 'MMMM yyyy')
+    : 'the latest month';
+  // Money we can expect over the next 3 months if recent months repeat.
+  const next3Expected = (() => {
+    const last3 = summary.slice(-3).map((r) => Number(r.total ?? 0));
+    if (!last3.length) return 0;
+    return (last3.reduce((a, b) => a + b, 0) / last3.length) * 3;
+  })();
+  const growing = momentum.filter((m) => m.pct >= 2);
+  const shrinking = momentum.filter((m) => m.pct <= -2);
+  const bestSeason = seasonality.length
+    ? seasonality.reduce((a, b) => (b.avg > a.avg ? b : a))
+    : null;
+  const weakestSeason = seasonality.length
+    ? seasonality.filter((s) => s.avg > 0).reduce((a, b) => (b.avg < a.avg ? b : a), seasonality.find((s) => s.avg > 0) ?? seasonality[0])
+    : null;
+  const monthName = (m: number) => format(new Date(2024, m - 1, 1), 'MMMM');
+
   const axisProps = { stroke: theme.axis, fontSize: 12, tickLine: false, axisLine: false } as const;
   const tt = {
     contentStyle: tooltipStyle(theme),
@@ -328,17 +353,17 @@ export function AnalyticsCharts({
           )}
         </div>
         <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-          <StatTile label="Best month ever" value={formatCompact(milestones.best.value)} sub={milestones.best.month ? format(parseISO(String(milestones.best.month)), 'MMMM yyyy') : '—'} accent />
-          <StatTile label="Average month" value={formatCompact(milestones.avg)} sub="all time" />
-          <StatTile label="All-time total" value={formatCompact(milestones.allTimeTotal)} sub={`${summary.length} months recorded`} />
-          <StatTile label="Worst month" value={formatCompact(milestones.worst.value)} sub={milestones.worst.month ? format(parseISO(String(milestones.worst.month)), 'MMMM yyyy') : '—'} />
+          <StatTile label="Our best month so far" value={formatCompact(milestones.best.value)} sub={milestones.best.month ? format(parseISO(String(milestones.best.month)), 'MMMM yyyy') : '—'} accent />
+          <StatTile label="A normal month" value={formatCompact(milestones.avg)} sub="average of every month" />
+          <StatTile label="Everything we have earned" value={formatCompact(milestones.allTimeTotal)} sub={`over ${summary.length} months`} />
+          <StatTile label="Our lowest month" value={formatCompact(milestones.worst.value)} sub={milestones.worst.month ? format(parseISO(String(milestones.worst.month)), 'MMMM yyyy') : '—'} />
         </div>
       </div>
 
       {/* ============ Section: The big picture ============ */}
       <div className="space-y-5">
-        <SectionHeader title="The big picture" subtitle="Where revenue has been and where it's heading" />
-        <ChartCard title="Monthly revenue" subtitle="Gold area = monthly total · dashed = 3-month average · thin line = period average">
+        <SectionHeader title="How much are we earning?" subtitle="Our total money, month by month" />
+        <ChartCard title="How much money do we make each month?" subtitle="Taller gold shape means we earned more that month">
           <div className="h-80">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
@@ -359,8 +384,16 @@ export function AnalyticsCharts({
               </AreaChart>
             </ResponsiveContainer>
           </div>
+          <Explain
+            shows="The gold shape is how much we earned in each month. The dashed line is the average of the last 3 months — it hides one-off jumps so you can see the real direction. The flat straight line is the average for the whole period shown."
+            means={`${lastMonthLabel} was ${plainMoney(latestTotal)}. That is ${
+              Math.abs(Math.round(latestVsAvgPct)) < 2
+                ? 'about the same as'
+                : `${Math.abs(Math.round(latestVsAvgPct))}% ${latestVsAvgPct > 0 ? 'above' : 'below'}`
+            } a normal month for this period. Compared with the month before, it ${plainChange(latestVsPrevPct)}.`}
+          />
         </ChartCard>
-        <ChartCard title="Cumulative growth" subtitle="Running total, with a 3-month projection (dashed)">
+        <ChartCard title="How much have we earned in total, and what comes next?" subtitle="The line only goes up, because it adds every month together">
           <div className="h-60">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={cumulative} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
@@ -373,14 +406,18 @@ export function AnalyticsCharts({
               </LineChart>
             </ResponsiveContainer>
           </div>
+          <Explain
+            shows="This adds every month together, so it always rises. A steeper line means we are earning faster. The short dashed part at the end is a guess for the next 3 months, based on our last 3 months."
+            means={`We have earned ${plainMoney(milestones.allTimeTotal)} in total. If the next 3 months are like the last 3, we can expect about ${plainMoney(next3Expected)} more. Use this number when planning spending for the next quarter, and remember it is an estimate, not a promise.`}
+          />
         </ChartCard>
       </div>
 
       {/* ============ Section: Where the money comes from ============ */}
       <div className="space-y-5">
-        <SectionHeader title="Where the money comes from" subtitle="Composition over the selected period" />
+        <SectionHeader title="Where does our money come from?" subtitle="Which streams pay us the most, and how much we depend on them" />
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-5">
-          <ChartCard title="Streams ranked" subtitle="Share of revenue in the selected period" className="lg:col-span-3">
+          <ChartCard title="Which streams bring us the most money?" subtitle="Longest bar at the top earns the most" className="lg:col-span-3">
             <ul className="space-y-3">
               {composition.map((s) => (
                 <li key={s.slug}>
@@ -400,23 +437,34 @@ export function AnalyticsCharts({
                 </li>
               ))}
             </ul>
+            <Explain
+              shows="Each bar is one revenue stream. The percentage is that stream's share of all the money we earned in the period you selected above."
+              means={
+                composition.length
+                  ? `${composition[0].name} is our biggest earner at ${composition[0].share.toFixed(0)}% of all money. The top ${Math.min(3, composition.length)} streams together bring ${composition
+                      .slice(0, 3)
+                      .reduce((a, b) => a + b.share, 0)
+                      .toFixed(0)}%. Put your team's effort and new deals where the money already is, and watch the small streams to see which one could grow next.`
+                  : undefined
+              }
+            />
           </ChartCard>
-          <ChartCard title="Concentration" subtitle="How much rides on the biggest stream" className="lg:col-span-2">
+          <ChartCard title="Are we depending too much on one stream?" subtitle="A safer business earns from many streams, not just one" className="lg:col-span-2">
             {concentration ? (
               <div className="space-y-5">
                 <div>
-                  <p className="text-caption text-secondary">Biggest stream (latest month)</p>
+                  <p className="text-caption text-secondary">Our biggest earner last month</p>
                   <p className="mt-0.5 text-title font-bold" style={{ color: concentration.top.color }}>
                     {concentration.top.name}
                   </p>
                   <p className="text-body text-primary">
                     <span className="text-display font-bold tabular-nums">{concentration.topShare.toFixed(0)}%</span>
-                    <span className="text-caption text-secondary"> of revenue</span>
+                    <span className="text-caption text-secondary"> of all our money</span>
                   </p>
                 </div>
                 <div>
                   <div className="flex items-baseline justify-between">
-                    <p className="text-caption text-secondary">Diversification score</p>
+                    <p className="text-caption text-secondary">How spread out our money is</p>
                     <p className="tabular-nums text-body font-bold text-primary">
                       {concentration.score.toFixed(0)}<span className="text-micro text-muted">/100</span>
                       {concentration.scoreDelta != null && (
@@ -429,15 +477,24 @@ export function AnalyticsCharts({
                   <div className="mt-2 h-2 overflow-hidden rounded-full bg-elevated">
                     <div className="h-full rounded-full bg-gold" style={{ width: `${concentration.score}%` }} />
                   </div>
-                  <p className="mt-3 text-caption text-secondary">
-                    {concentration.topShare > 60
-                      ? `⚠ Over ${concentration.topShare.toFixed(0)}% of revenue comes from one stream — a dip in ${concentration.top.name} would hit the total hard.`
-                      : 'Revenue is reasonably spread out; no single stream dominates dangerously.'}
+                  <p className="mt-2 text-caption text-secondary">
+                    A higher number means our money comes from many streams, which
+                    is safer. A lower number means most of it comes from just one.
                   </p>
                 </div>
               </div>
             ) : (
-              <p className="text-caption text-secondary">Needs at least one month of data.</p>
+              <p className="text-caption text-secondary">We need at least one month of data to show this.</p>
+            )}
+            {concentration && (
+              <Explain
+                shows={`${concentration.top.name} paid us the most last month — ${concentration.topShare.toFixed(0)}% of everything we earned.`}
+                means={
+                  concentration.topShare > 60
+                    ? `This is a risk. If ${concentration.top.name} stopped paying, we would lose about ${plainMoney((concentration.topShare / 100) * latestTotal)} every month. It is worth growing a second stream so the business does not depend on one partner.`
+                    : `This is fairly healthy. No single stream can take down the whole business. Losing ${concentration.top.name} would still cost us about ${plainMoney((concentration.topShare / 100) * latestTotal)} a month, so keep that relationship strong.`
+                }
+              />
             )}
           </ChartCard>
         </div>
@@ -445,12 +502,14 @@ export function AnalyticsCharts({
 
       {/* ============ Section: What's moving ============ */}
       <div className="space-y-5">
-        <SectionHeader title="What's moving" subtitle="Month-over-month changes and momentum" />
+        <SectionHeader title="What is going up and what is going down?" subtitle="Changes since last month, and the direction over the last 3 months" />
         {topMovers.length > 0 && (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             {topMovers.map((m, i) => (
               <div key={m.name} className={`rounded-2xl border p-4 ${i === 0 ? 'border-gold/40 bg-gold/5' : 'border-border bg-card'}`}>
-                <p className="text-micro uppercase tracking-wide text-secondary">{i === 0 ? 'Biggest mover' : 'Mover'}</p>
+                <p className="text-micro uppercase tracking-wide text-secondary">
+                  {i === 0 ? 'Biggest change' : 'Also changed a lot'}
+                </p>
                 <p className="mt-1 flex items-center gap-2 text-body font-semibold text-primary">
                   <span className="h-2.5 w-2.5 rounded-full" style={{ background: m.color }} />
                   {m.name}
@@ -464,7 +523,7 @@ export function AnalyticsCharts({
           </div>
         )}
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-          <ChartCard title="Month-over-month by stream" subtitle="Latest month vs the month before, biggest change first">
+          <ChartCard title="Which streams changed most since last month?" subtitle="Biggest change first. Gold means it went up, red means it went down">
             <ul className="space-y-2">
               {momComparison.map((m) => (
                 <li key={m.name} className="flex items-center gap-3">
@@ -477,8 +536,16 @@ export function AnalyticsCharts({
                 </li>
               ))}
             </ul>
+            <Explain
+              shows={`This compares ${lastMonthLabel} with the month before it, for every stream. One month can jump around for normal reasons, so treat a single big change as a question, not an answer.`}
+              means={
+                momComparison.length
+                  ? `The biggest change was ${momComparison[0].name}, which ${plainChange(momComparison[0].pct)} (${plainMoney(momComparison[0].previous)} to ${plainMoney(momComparison[0].current)}). Ask the person who manages that stream what happened, so you know if it will continue.`
+                  : undefined
+              }
+            />
           </ChartCard>
-          <ChartCard title="Momentum" subtitle="Last 3 months vs the 3 before — who's heating up">
+          <ChartCard title="Which streams are growing, and which are shrinking?" subtitle="Compares the last 3 months with the 3 months before">
             <ul className="space-y-2">
               {momentum.map((m) => (
                 <li key={m.name} className="flex items-center gap-3">
@@ -488,19 +555,30 @@ export function AnalyticsCharts({
                     {m.pct >= 0 ? '▲' : '▼'} {Math.abs(m.pct).toFixed(1)}%
                   </span>
                   <span className="ml-auto text-micro text-secondary">
-                    {m.up >= 2 ? `${m.up} months growing` : m.down >= 2 ? `${m.down} months declining` : 'steady'}
+                    {m.up >= 2 ? `up ${m.up} months in a row` : m.down >= 2 ? `down ${m.down} months in a row` : 'not much change'}
                   </span>
                 </li>
               ))}
             </ul>
+            <Explain
+              shows="Using 3 months instead of one removes lucky or unlucky single months, so this is the more reliable picture of direction."
+              means={`${growing.length} stream${growing.length === 1 ? ' is' : 's are'} growing and ${shrinking.length} ${shrinking.length === 1 ? 'is' : 'are'} shrinking.${
+                shrinking.length
+                  ? ` ${shrinking[shrinking.length - 1].name} is falling fastest — look at this one first, because a stream that drops for 3 months usually keeps dropping unless something changes.`
+                  : ' Nothing is falling, which is a good sign.'
+              }`}
+            />
           </ChartCard>
         </div>
         {recordsAnomalies.anomalies.length > 0 && (
           <div className="space-y-2">
             {recordsAnomalies.anomalies.map((a) => (
               <div key={a.name} className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-caption text-amber-200">
-                ⚠ <span className="font-semibold">{a.name}</span> is unusually {a.direction === 'above' ? 'high' : 'low'} this month
-                ({formatMMK(a.latest)} vs a typical {formatMMK(a.mean)}). Double-check the entry — or celebrate if it&apos;s real.
+                <span className="font-semibold">Please check: {a.name}</span> is much{' '}
+                {a.direction === 'above' ? 'higher' : 'lower'} than normal this month.
+                It is {formatMMK(a.latest)}, but a normal month is about {formatMMK(a.mean)}.
+                Please open Data Entry and check the number was typed correctly. If the
+                number is correct, there is no problem.
               </div>
             ))}
           </div>
@@ -509,10 +587,10 @@ export function AnalyticsCharts({
 
       {/* ============ Section: Rhythm ============ */}
       <div className="space-y-5">
-        <SectionHeader title="Rhythm" subtitle="Quarters, year-over-year and seasonality" />
+        <SectionHeader title="Which times of year are good for us?" subtitle="Useful when planning releases, budgets and staff for the year ahead" />
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
           {quarterly.length > 1 && (
-            <ChartCard title="Quarterly totals" subtitle="Stacked by stream · partial quarters marked below">
+            <ChartCard title="How much do we earn every 3 months?" subtitle="Each bar is 3 months added together, split by stream">
               <div className="h-64">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={quarterlyGrouped.rows} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
@@ -539,11 +617,22 @@ export function AnalyticsCharts({
                   </span>
                 ))}
               </div>
+              <Explain
+                shows={`A quarter is 3 months. The label under each bar shows the total, and the percentage compares it with the quarter before. A quarter marked "(1 mo)" or "(2 mo)" is not finished yet, so its bar looks smaller than it will be.`}
+                means={(() => {
+                  const done = quarterly.filter((q) => Number(q.months) === 3);
+                  const last = done[done.length - 1];
+                  if (!last || last.qoq == null) return undefined;
+                  return `Our last complete quarter (${String(last.quarter)}) brought ${plainMoney(Number(last.total))} and ${plainChange(Number(last.qoq))} compared with the quarter before. Quarters are the best unit for budget planning, because they smooth out slow and busy months.`;
+                })()}
+              />
             </ChartCard>
           )}
-          <ChartCard title="Year over year" subtitle="Same month, this year vs last year">
+          <ChartCard title="Are we doing better than last year?" subtitle="Gold is this year, grey is the same month one year ago">
             {yoy.length === 0 ? (
-              <p className="text-caption text-secondary">Appears once two years share the same months of data.</p>
+              <p className="text-caption text-secondary">
+                This chart will appear once we have two years of data for the same months.
+              </p>
             ) : (
               <div className="h-64">
                 <ResponsiveContainer width="100%" height="100%">
@@ -559,10 +648,24 @@ export function AnalyticsCharts({
                 </ResponsiveContainer>
               </div>
             )}
+            {yoy.length > 0 && (
+              <Explain
+                shows="For each month, the grey bar is what we earned in that same month last year and the gold bar is this year. If gold is taller, we improved."
+                means={(() => {
+                  const valid = yoy.filter((y) => y.previous > 0);
+                  if (!valid.length) return undefined;
+                  const better = valid.filter((y) => y.current > y.previous).length;
+                  const totalNow = valid.reduce((a, b) => a + b.current, 0);
+                  const totalPrev = valid.reduce((a, b) => a + b.previous, 0);
+                  const pct = totalPrev ? ((totalNow - totalPrev) / totalPrev) * 100 : 0;
+                  return `We earned more than last year in ${better} of ${valid.length} months. Overall the business ${plainChange(pct)} compared with the same period last year. This is the fairest way to judge real growth, because it compares like with like.`;
+                })()}
+              />
+            )}
           </ChartCard>
         </div>
         {seasonality.length > 0 && (
-          <ChartCard title="Seasonality" subtitle="Average revenue by calendar month — darker gold = stronger month">
+          <ChartCard title="Which months of the year are usually strong?" subtitle="Darker gold means that month is usually better for us">
             <div className="grid grid-cols-3 gap-2 sm:grid-cols-6 lg:grid-cols-12">
               {seasonality.map((s) => {
                 const intensity = milestones.best.value ? Math.min(s.avg / milestones.best.value, 1) : 0;
@@ -574,22 +677,30 @@ export function AnalyticsCharts({
                 );
               })}
             </div>
+            <Explain
+              shows="This puts every January together, every February together, and so on, then shows the average. It answers whether some months of the year are always better for us."
+              means={
+                bestSeason && weakestSeason && bestSeason.avg > 0
+                  ? `${monthName(bestSeason.month)} is usually our strongest month (about ${plainMoney(bestSeason.avg)}) and ${monthName(weakestSeason.month)} is usually our weakest (about ${plainMoney(weakestSeason.avg)}). Plan big releases and campaigns just before ${monthName(bestSeason.month)}, and keep enough cash for ${monthName(weakestSeason.month)}.`
+                  : undefined
+              }
+            />
           </ChartCard>
         )}
       </div>
 
       {/* ============ Section: Records & stream health ============ */}
       <div className="space-y-5">
-        <SectionHeader title="Records & stream health" subtitle="Highs, lows and each stream's life so far" />
+        <SectionHeader title="Best and worst months for each stream" subtitle="Useful for checking what is possible, and spotting streams that have stopped" />
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-          <ChartCard title="Records" subtitle="Each stream's best and worst month">
+          <ChartCard title="What is the most and least each stream has ever earned?" subtitle="The highest and lowest month we have recorded for each stream">
             <div className="overflow-x-auto">
               <table className="w-full text-caption">
                 <thead>
                   <tr className="border-b border-border text-secondary">
                     <th className="py-2 pr-2 text-left font-medium">Stream</th>
-                    <th className="px-2 py-2 text-right font-medium">Record high</th>
-                    <th className="px-2 py-2 text-right font-medium">Record low</th>
+                    <th className="px-2 py-2 text-right font-medium">Best month ever</th>
+                    <th className="px-2 py-2 text-right font-medium">Lowest month</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -612,16 +723,20 @@ export function AnalyticsCharts({
                 </tbody>
               </table>
             </div>
+            <Explain
+              shows="The best month shows what a stream can reach when everything goes well. The lowest month shows what happens in a bad month."
+              means="When you set a target for a stream, compare it with that stream's best month. A target far above anything it has ever earned is probably too high."
+            />
           </ChartCard>
-          <ChartCard title="Stream lifecycle" subtitle="How long each stream has been earning">
+          <ChartCard title="How long has each stream been earning for us?" subtitle="When it started, how much it has earned, and its direction now">
             <div className="overflow-x-auto">
               <table className="w-full text-caption">
                 <thead>
                   <tr className="border-b border-border text-secondary">
                     <th className="py-2 pr-2 text-left font-medium">Stream</th>
-                    <th className="px-2 py-2 text-left font-medium">Since</th>
-                    <th className="px-2 py-2 text-right font-medium">All-time</th>
-                    <th className="px-2 py-2 text-right font-medium">Trend</th>
+                    <th className="px-2 py-2 text-left font-medium">Earning since</th>
+                    <th className="px-2 py-2 text-right font-medium">Earned in total</th>
+                    <th className="px-2 py-2 text-right font-medium">Direction now</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -637,7 +752,7 @@ export function AnalyticsCharts({
                         <span className={`rounded-full px-2 py-0.5 text-micro font-semibold uppercase ${
                           row.trend === 'growing' ? 'bg-gold/15 text-gold' : row.trend === 'declining' ? 'bg-red-500/15 text-red-400' : 'bg-elevated text-secondary'
                         }`}>
-                          {row.trend}
+                          {row.trend === 'growing' ? 'going up' : row.trend === 'declining' ? 'going down' : 'steady'}
                         </span>
                       </td>
                     </tr>
@@ -645,34 +760,48 @@ export function AnalyticsCharts({
                 </tbody>
               </table>
             </div>
+            <Explain
+              shows={`"Earning since" is the first month we recorded money for that stream. "Direction now" compares its last 3 months with the 3 months before.`}
+              means={(() => {
+                const dead = lifecycle.filter((l) => l.trend === 'declining');
+                if (!dead.length) return 'No stream is going down right now.';
+                return `${dead.map((d) => d.name).join(', ')} ${dead.length === 1 ? 'is' : 'are'} going down. A long-running stream that starts falling often means a contract or promotion ended — worth asking the partner about before it falls further.`;
+              })()}
+            />
           </ChartCard>
         </div>
       </div>
 
-      {/* ============ Section: Telecom deep dive ============ */}
+      {/* ============ Section: Telecom detail ============ */}
       <div className="space-y-5">
-        <SectionHeader title="Telecom deep dive" subtitle="MPT, Atom and Ooredoo under the hood" />
+        <SectionHeader
+          title="Mobile operator details (MPT, Atom, Ooredoo)"
+          subtitle="Only needed if you manage the telecom partners. Everyone else can skip this part."
+        />
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-          <ChartCard title="Ringtune source split" subtitle="Which operator drives Ringtune">
+          <ChartCard title="Which mobile operator pays us the most for Ringtune?" subtitle="Each colour is one operator, added together each month">
             <MiniStack data={telecom} keys={[['MPT', '#d4af37'], ['Atom', '#3b82f6'], ['Ooredoo', '#8b5cf6']]} theme={theme} axisProps={axisProps} tt={tt} />
           </ChartCard>
-          <ChartCard title="Telecom vs direct" subtitle="Operator revenue vs everything else">
+          <ChartCard title="How much comes from mobile operators, and how much from everywhere else?" subtitle="Gold is money from mobile operators, blue is all our other streams">
             <MiniStack data={filtered.map((row) => ({
               monthLabel: row.month ? format(parseISO(String(row.month)), 'MMM yy') : '',
               Telecom: Number(row.ringtune ?? 0) + Number(row.eauc ?? 0) + Number(row.combo ?? 0),
               Direct: Number(row.total ?? 0) - (Number(row.ringtune ?? 0) + Number(row.eauc ?? 0) + Number(row.combo ?? 0)),
             }))} keys={[['Telecom', '#d4af37'], ['Direct', '#3b82f6']]} theme={theme} axisProps={axisProps} tt={tt} />
           </ChartCard>
-          <ChartCard title="MPT contribution" subtitle="Ringtune / EAUC / Combo inside MPT">
+          <ChartCard title="Inside MPT: which product earns the most?" subtitle="MPT's money split into Ringtune, EAUC and Combo">
             <MiniStack data={mptContribution} keys={[['Ringtune', '#d4af37'], ['EAUC', '#3b82f6'], ['Combo', '#8b5cf6']]} theme={theme} axisProps={axisProps} tt={tt} />
           </ChartCard>
-          <ChartCard title="Atom contribution" subtitle="Ringtune / EAUC / Combo inside Atom">
+          <ChartCard title="Inside Atom: which product earns the most?" subtitle="Atom's money split into Ringtune, EAUC and Combo">
             <MiniStack data={atomContribution} keys={[['Ringtune', '#d4af37'], ['EAUC', '#3b82f6'], ['Combo', '#8b5cf6']]} theme={theme} axisProps={axisProps} tt={tt} />
           </ChartCard>
         </div>
       </div>
 
-      <p className="text-caption text-muted">Last recorded month: {lastMonth ? format(parseISO(lastMonth), 'MMM yyyy') : '—'} · Next entry due: {nextDue}.</p>
+      <p className="text-caption text-muted">
+        The newest month with data is {lastMonth ? format(parseISO(lastMonth), 'MMMM yyyy') : '—'}. The next
+        month to fill in is {nextDue}. All amounts are shown in your selected currency.
+      </p>
     </div>
   );
 }

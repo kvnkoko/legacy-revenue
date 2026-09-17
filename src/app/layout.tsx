@@ -1,7 +1,23 @@
 import type { Metadata } from 'next';
+import localFont from 'next/font/local';
 import { Toaster } from 'sonner';
 import { AuthzProvider } from '@/components/authz/AuthzProvider';
 import './globals.css';
+
+// Self-hosted so the app never blocks on a third-party font CDN. The previous
+// render-blocking <link> to api.fontshare.com left the page blank for anyone
+// whose network cannot reach that host (reported from Myanmar without a VPN).
+const satoshi = localFont({
+  src: [
+    { path: '../../public/fonts/Satoshi-Regular.woff2', weight: '400', style: 'normal' },
+    { path: '../../public/fonts/Satoshi-Medium.woff2', weight: '500', style: 'normal' },
+    { path: '../../public/fonts/Satoshi-Bold.woff2', weight: '700', style: 'normal' },
+    { path: '../../public/fonts/Satoshi-Black.woff2', weight: '900', style: 'normal' },
+  ],
+  variable: '--font-satoshi',
+  display: 'swap',
+  fallback: ['system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'sans-serif'],
+});
 
 export const metadata: Metadata = {
   title: 'Legacy Revenue Finance Portal',
@@ -14,12 +30,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" className={satoshi.variable} suppressHydrationWarning>
       <head>
-        <link
-          href="https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700,900&display=swap"
-          rel="stylesheet"
-        />
         <script
           dangerouslySetInnerHTML={{
             __html: `

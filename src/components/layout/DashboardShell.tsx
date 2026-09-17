@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
+import { AccessNotice } from '@/components/authz/AccessNotice';
 import { Sidebar } from '@/components/Sidebar';
 import { Header } from '@/components/Header';
 import { CurrencyProvider } from '@/contexts/CurrencyContext';
@@ -30,7 +31,12 @@ export function DashboardShell({
       <Sidebar mobileOpen={mobileNavOpen} onClose={() => setMobileNavOpen(false)} />
       <div className="flex min-h-screen flex-1 min-w-0 flex-col">
         <Header onMenuClick={() => setMobileNavOpen(true)} />
-        <main className="flex-1 overflow-auto p-3 sm:p-4 md:p-6 max-w-[1400px]">{children}</main>
+        <main className="flex-1 overflow-auto p-3 sm:p-4 md:p-6 max-w-[1400px]">
+          <Suspense fallback={null}>
+            <AccessNotice />
+          </Suspense>
+          {children}
+        </main>
       </div>
     </div>
     </SessionIdleProvider>
