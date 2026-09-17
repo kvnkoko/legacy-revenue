@@ -36,14 +36,27 @@ const GROUPS: Array<{ title: string; items: Array<{ key: keyof PermissionMap; la
   },
 ];
 
+/** Human label for a permission key, for use in summaries elsewhere. */
+export const PERMISSION_LABELS: Record<string, string> = Object.fromEntries(
+  GROUPS.flatMap((g) => g.items.map((i) => [i.key, i.label]))
+);
+
 export function PermissionsMatrix({
   value,
   onChange,
   disabled,
+  roleDefaults,
 }: {
   value: PermissionMap;
   onChange: (next: PermissionMap) => void;
   disabled?: boolean;
+  /**
+   * What this person's ROLE grants. Any checkbox differing from it is a
+   * per-person exception and is marked as such. Without this, an unchecked box
+   * on an Editor looked identical to a role that simply does not include it,
+   * so admins could not tell why someone was missing access.
+   */
+  roleDefaults?: PermissionMap;
 }) {
   return (
     <div className="space-y-4">
@@ -51,19 +64,40 @@ export function PermissionsMatrix({
         <section key={group.title} className="rounded-lg border border-border bg-elevated p-3">
           <h4 className="mb-2 text-caption font-semibold uppercase tracking-wide text-secondary">{group.title}</h4>
           <div className="space-y-2">
-            {group.items.map((item) => (
-              <label key={item.key} className="flex items-center justify-between gap-3">
-                <span className="text-body text-primary">{item.label}</span>
-                <input
-                  type="checkbox"
-                  checked={Boolean(value[item.key])}
-                  disabled={disabled}
-                  title={disabled ? 'Admins always have full access. Change the role to restrict permissions.' : ''}
-                  onChange={(e) => onChange({ ...value, [item.key]: e.target.checked })}
-                  className="h-4 w-4 rounded border-border text-gold focus:ring-gold"
-                />
-              </label>
-            ))}
+            {group.items.map((item) => {
+              const current = Boolean(value[item.key]);
+              const fromRole = roleDefaults ? Boolean(roleDefaults[item.key]) : current;
+              const differs = Boolean(roleDefaults) && !disabled && current !== fromRole;
+              return (
+                <label key={item.key} className="flex items-start justify-between gap-3">
+                  <span className="text-body text-primary">
+                    {item.label}
+                    {differs && (
+                      <span
+                        className={`ml-2 whitespace-nowrap rounded px-1.5 py-0.5 align-middle text-micro font-semibold ${
+                          current ? 'bg-gold/15 text-gold' : 'bg-amber-500/15 text-amber-400'
+                        }`}
+                      >
+                        {current ? 'added for this person' : 'blocked for this person'}
+                      </span>
+                    )}
+                    {differs && (
+                      <span className="mt-0.5 block text-micro text-secondary">
+                        Their role {fromRole ? 'normally allows this' : 'does not normally include this'}.
+                      </span>
+                    )}
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={current}
+                    disabled={disabled}
+                    title={disabled ? 'Admins always have full access. Change the role to restrict permissions.' : ''}
+                    onChange={(e) => onChange({ ...value, [item.key]: e.target.checked })}
+                    className="mt-1 h-4 w-4 shrink-0 rounded border-border text-gold focus:ring-gold"
+                  />
+                </label>
+              );
+            })}
           </div>
         </section>
       ))}

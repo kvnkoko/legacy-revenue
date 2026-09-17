@@ -4,7 +4,7 @@ import { useMemo, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { ConfirmDialog } from '@/components/ui/dialog/ConfirmDialog';
-import { PermissionsMatrix } from '@/components/admin/users/PermissionsMatrix';
+import { PERMISSION_LABELS, PermissionsMatrix } from '@/components/admin/users/PermissionsMatrix';
 import type { ManagedUser, UserActivityRow, PendingInvite } from '@/components/admin/users/types';
 import { ROLE_DEFAULT_PERMISSIONS, ROLE_DESCRIPTIONS } from '@/lib/permission-presets';
 import { ROLE_LABELS, type Role } from '@/lib/authz/types';
@@ -137,6 +137,23 @@ export function UserDetailPanel({
   const [permissions, setPermissions] = useState(user?.permissions ?? ROLE_DEFAULT_PERMISSIONS.viewer);
   const [role, setRole] = useState<Role>(user?.role ?? 'viewer');
   const [status, setStatus] = useState<'active' | 'suspended' | 'pending'>(user?.status ?? 'active');
+
+  // Which permissions differ from what this person's role grants, in both
+  // directions, using the same labels shown in the checkbox list.
+  const roleExceptions = useMemo(() => {
+    const defaults = ROLE_DEFAULT_PERMISSIONS[role] ?? ROLE_DEFAULT_PERMISSIONS.viewer;
+    const blocked: string[] = [];
+    const added: string[] = [];
+    for (const key of Object.keys(defaults) as Array<keyof typeof defaults>) {
+      const granted = Boolean(permissions?.[key]);
+      const fromRole = Boolean(defaults[key]);
+      if (granted === fromRole) continue;
+      const label = PERMISSION_LABELS[key as string] ?? (key as string);
+      if (fromRole) blocked.push(label);
+      else added.push(label);
+    }
+    return { blocked, added };
+  }, [permissions, role]);
 
   useMemo(() => {
     setForm({
@@ -301,7 +318,40 @@ export function UserDetailPanel({
               Reset to Role Default
             </button>
           </div>
-          <PermissionsMatrix value={permissions} onChange={setPermissions} disabled={role === 'admin'} />
+          {/* Exceptions were previously invisible: an unchecked box looked the
+              same whether the role excluded it or someone had switched it off
+              for this person. That is what made "my role is not working" hard
+              to diagnose, so differences are now stated up front. */}
+          {roleExceptions.blocked.length + roleExceptions.added.length > 0 && role !== 'admin' && (
+            <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 text-caption">
+              <p className="text-body font-semibold text-primary">
+                This person&apos;s access does not match their {ROLE_LABELS[role]} role
+              </p>
+              {roleExceptions.blocked.length > 0 && (
+                <p className="mt-1.5 leading-relaxed text-secondary">
+                  <span className="font-medium text-primary">Blocked</span> even though {ROLE_LABELS[role]} normally
+                  allows it: {roleExceptions.blocked.join(', ')}. This is why they may say a section is missing.
+                </p>
+              )}
+              {roleExceptions.added.length > 0 && (
+                <p className="mt-1.5 leading-relaxed text-secondary">
+                  <span className="font-medium text-primary">Given extra access</span> beyond {ROLE_LABELS[role]}:{' '}
+                  {roleExceptions.added.join(', ')}.
+                </p>
+              )}
+              <p className="mt-1.5 text-secondary">
+                If these exceptions are not intentional, press{' '}
+                <span className="font-medium text-primary">Reset to Role Default</span>, then{' '}
+                <span className="font-medium text-primary">Save Permissions</span>.
+              </p>
+            </div>
+          )}
+          <PermissionsMatrix
+            value={permissions}
+            onChange={setPermissions}
+            disabled={role === 'admin'}
+            roleDefaults={ROLE_DEFAULT_PERMISSIONS[role] ?? ROLE_DEFAULT_PERMISSIONS.viewer}
+          />
           <button type="button" onClick={saveRolePermissions} disabled={pending} className="rounded-lg bg-gold px-4 py-2 text-body font-medium text-background disabled:opacity-50">
             Save Permissions
           </button>
