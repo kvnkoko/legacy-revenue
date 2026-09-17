@@ -498,7 +498,14 @@ export function UserDetailPanel({
                   startTransition(async () => {
                     try {
                       await resendManagedUserInvite({ email: user.email });
-                      toast.success('Invite resent');
+                      try {
+                        await navigator.clipboard.writeText(`${window.location.origin}/signup`);
+                      } catch {
+                        // Clipboard can be blocked by the browser; the message below still names the link.
+                      }
+                      toast.success(
+                        `Invite renewed for ${user.email}. No email is sent automatically. Send them this link: ${window.location.origin}/signup`
+                      );
                     } catch (error) {
                       toast.error(error instanceof Error ? error.message : 'Failed to resend invite');
                     }

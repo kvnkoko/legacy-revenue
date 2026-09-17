@@ -5,9 +5,8 @@ import { useState, useTransition } from 'react';
 import type { User } from '@supabase/supabase-js';
 import { toast } from 'sonner';
 import { useRouter } from 'next/navigation';
-import { resetPortalData, updateCurrencyPreference, updateMyPassword, updateProfileInfo } from '@/app/(dashboard)/settings/actions';
+import { updateCurrencyPreference, updateMyPassword, updateProfileInfo } from '@/app/(dashboard)/settings/actions';
 import { CURRENCIES, type CurrencyCode } from '@/lib/currency';
-import { ConfirmDialog } from '@/components/ui/dialog/ConfirmDialog';
 
 export function SettingsForm({
   user,
@@ -37,7 +36,6 @@ export function SettingsForm({
   const [fullName, setFullName] = useState(initialName);
   const [username, setUsername] = useState(initialUsername);
   const [newPassword, setNewPassword] = useState('');
-  const [confirmResetOpen, setConfirmResetOpen] = useState(false);
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
 
@@ -95,18 +93,6 @@ export function SettingsForm({
     });
   };
 
-  function handleResetAllData() {
-    startTransition(async () => {
-      try {
-        await resetPortalData();
-        toast.success('All portal data cleared. You can now import fresh data.');
-        router.push('/import');
-        router.refresh();
-      } catch (error) {
-        toast.error(error instanceof Error ? error.message : 'Failed to reset portal data');
-      }
-    });
-  }
 
   return (
     <div className="rounded-xl border border-border bg-card p-4 sm:p-6 space-y-8">
@@ -254,28 +240,6 @@ export function SettingsForm({
           </a>
         </section>
       )}
-      <section className="rounded-lg border border-red-500/30 bg-red-500/5 p-4">
-        <h2 className="text-body font-semibold text-red-300 mb-2">Danger Zone</h2>
-        <p className="text-caption text-secondary mb-4">
-          Reset all stored financial data and clear import artifacts so you can start from a fresh state.
-        </p>
-        <button
-          type="button"
-          onClick={() => setConfirmResetOpen(true)}
-          disabled={isPending}
-          className="w-full rounded-lg border border-red-400/50 bg-red-500/10 px-4 py-2 text-body font-medium text-red-200 hover:bg-red-500/20 disabled:opacity-50 sm:w-auto"
-        >
-          {isPending ? 'Resetting…' : 'Reset All Data'}
-        </button>
-      </section>
-      <ConfirmDialog
-        open={confirmResetOpen}
-        onClose={() => setConfirmResetOpen(false)}
-        onConfirm={handleResetAllData}
-        title="Reset all portal data"
-        message="This will permanently delete all portal data and clear import artifacts. This action cannot be undone."
-        confirmText="Reset All Data"
-      />
     </div>
   );
 }

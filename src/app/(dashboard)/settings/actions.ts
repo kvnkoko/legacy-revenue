@@ -2,66 +2,22 @@
 
 import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
-import { requirePermission } from '@/lib/authz/server';
+import { assertSaved } from '@/lib/db/verify-write';
 
-const RESET_TABLES = [
-  'revenue_summary',
-  'ringtune',
-  'mpt',
-  'atom',
-  'eauc',
-  'combo',
-  'local',
-  'sznb',
-  'flow_subscription',
-  'international',
-  'youtube',
-  'spotify',
-  'tiktok',
-] as const;
-
-export async function resetPortalData() {
-  await requirePermission('can_manage_settings');
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) throw new Error('Unauthorized');
-
-  for (const table of RESET_TABLES) {
-    const { error } = await supabase.from(table).delete().gte('sqlid', 0);
-    if (error) throw new Error(`Failed to clear ${table}: ${error.message}`);
-  }
-
-  // Best-effort cleanup of uploaded import artifacts for this user.
-  const importsBucket = supabase.storage.from('imports');
-  const { data: files } = await importsBucket.list(user.id, { limit: 1000 });
-  if (files && files.length > 0) {
-    const paths = files.map((f) => `${user.id}/${f.name}`);
-    await importsBucket.remove(paths);
-  }
-
-  await supabase.from('audit_log').insert({
-    user_id: user.id,
-    user_name: user.user_metadata?.full_name ?? user.email,
-    user_role: 'admin',
-    user_email: user.email ?? null,
-    action: 'DELETE',
-    table_name: 'system_reset',
-    row_id: user.id,
-    old_value: null,
-    new_value: { message: 'Portal data reset from settings' },
-  });
-
-  revalidatePath('/dashboard');
-  revalidatePath('/entry');
-  revalidatePath('/streams');
-  revalidatePath('/analytics');
-  revalidatePath('/import');
-  revalidatePath('/audit');
-  revalidatePath('/settings');
-}
+/*
+ * resetPortalData() was removed on purpose.
+ *
+ * It deleted from the legacy per-stream tables (mpt, revenue_summary, ...),
+ * which migration 017 froze by dropping their write policies. Every delete was
+ * therefore silently blocked by RLS, yet the button reported "All portal data
+ * cleared" and wrote a DELETE 'system_reset' row to audit_log - an audit record
+ * of a reset that never happened. Real data lives in revenue_entries and was
+ * never touched.
+ *
+ * It is deliberately NOT repointed at revenue_entries: a one-click wipe of all
+ * financial history does not belong in a finance portal's personal settings.
+ * If a genuine reset is ever needed, do it as a reviewed, backed-up SQL script.
+ */
 
 export async function updateProfileInfo(payload: { fullName: string; username: string }) {
   const supabase = await createClient();
@@ -85,16 +41,24 @@ export async function updateProfileInfo(payload: { fullName: string; username: s
     .maybeSingle();
   if (usernameTaken) throw new Error('Username is already taken');
 
+  // Profile row first and verified: it is what the app and audit log show.
+  // Updating auth metadata first meant a failed profile write left the two
+  // disagreeing while the person was told their name had been saved.
+  const { data: savedProfile, error: profileError } = await supabase
+    .from('user_profiles')
+    .upsert(
+      { id: user.id, full_name: fullName, display_name: username, username, email: user.email ?? '' },
+      { onConflict: 'id' }
+    )
+    .select('full_name, username')
+    .maybeSingle();
+  if (profileError) throw new Error(profileError.message);
+  assertSaved(savedProfile, { full_name: fullName, username }, 'Your name and username');
+
   const { error: authError } = await supabase.auth.updateUser({
     data: { full_name: fullName, username },
   });
   if (authError) throw new Error(authError.message);
-
-  const { error: profileError } = await supabase.from('user_profiles').upsert(
-    { id: user.id, full_name: fullName, display_name: username, username, email: user.email ?? '' },
-    { onConflict: 'id' }
-  );
-  if (profileError) throw new Error(profileError.message);
 
   revalidatePath('/settings');
   revalidatePath('/audit');
@@ -110,15 +74,19 @@ export async function updateCurrencyPreference(payload: {
   } = await supabase.auth.getUser();
   if (!user) throw new Error('Unauthorized');
 
-  const { error } = await supabase
+  const displayCurrency = payload.displayCurrency ?? 'MMK';
+  const { data: saved, error } = await supabase
     .from('user_profiles')
     .update({
-      display_currency: payload.displayCurrency ?? 'MMK',
+      display_currency: displayCurrency,
       currency_overrides: payload.currencyOverrides ?? {},
     })
-    .eq('id', user.id);
+    .eq('id', user.id)
+    .select('display_currency')
+    .maybeSingle();
 
   if (error) throw new Error(error.message);
+  assertSaved(saved, { display_currency: displayCurrency }, 'Your currency preference');
   revalidatePath('/settings');
   revalidatePath('/dashboard');
   revalidatePath('/streams');

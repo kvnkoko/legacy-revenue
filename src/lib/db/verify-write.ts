@@ -17,13 +17,25 @@
  * verify the values that are actually stored after the write.
  */
 
+function canonical(v: unknown): string {
+  if (Array.isArray(v)) return `[${v.map(canonical).join(',')}]`;
+  if (v && typeof v === 'object') {
+    return `{${Object.keys(v as Record<string, unknown>)
+      .sort()
+      .map((k) => `${JSON.stringify(k)}:${canonical((v as Record<string, unknown>)[k])}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(v);
+}
+
 /** Loose equality that treats jsonb columns (objects/arrays) sensibly. */
 function sameValue(a: unknown, b: unknown): boolean {
   if (a === b) return true;
   if (a == null || b == null) return a == null && b == null;
   if (typeof a === 'object' || typeof b === 'object') {
+    // Postgres jsonb does not preserve key order, so compare canonically.
     try {
-      return JSON.stringify(a) === JSON.stringify(b);
+      return canonical(a) === canonical(b);
     } catch {
       return false;
     }

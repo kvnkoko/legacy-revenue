@@ -106,6 +106,33 @@ export async function importExcelAction(parsed: ParsedSheet[], filename: string 
   let skipped = 0;
   const warnings: string[] = [];
 
+  // Every exit path that may have written data must leave an audit row. Before
+  // this, a failure on a later sheet returned early after earlier sheets were
+  // already saved, so real changes were left with no audit record at all.
+  const writeImportAudit = async (outcome: 'completed' | 'failed_partway', failure?: string) => {
+    const { error: auditError } = await admin.from('audit_log').insert({
+      user_id: user.id,
+      user_name: perms.profile?.full_name ?? perms.profile?.display_name ?? user.email ?? 'Unknown',
+      user_role: perms.role,
+      user_email: user.email ?? null,
+      action: 'IMPORT',
+      table_name: 'import',
+      row_id: filename,
+      new_value: { outcome, failure: failure ?? null, inserted, updated, skipped, warnings: warnings.length, filename },
+    });
+    if (auditError) console.error('[import] audit row not written', auditError.message);
+  };
+  const failPartway = async (message: string) => {
+    if (inserted + updated > 0) {
+      await writeImportAudit('failed_partway', message);
+      return {
+        error: `${message}. The import stopped here: ${inserted + updated} month(s) from earlier sheets WERE saved and recorded in the Audit Log. Fix the problem and import again — unchanged values are skipped automatically.`,
+        inserted, updated, skipped, warnings,
+      };
+    }
+    return { error: `${message}. Nothing was saved.`, inserted, updated, skipped, warnings };
+  };
+
   // ---- Write pass: entry-stream fields only (base facts are authoritative) --
   for (const sheet of parsed) {
     const plan = resolveSheetPlan(config, sheet.name);
@@ -134,7 +161,7 @@ export async function importExcelAction(parsed: ParsedSheet[], filename: string 
       .select('month, field_id, amount')
       .in('month', months)
       .in('field_id', fieldIds);
-    if (fetchError) return { error: `${sheet.name}: ${fetchError.message}`, inserted, updated, skipped, warnings };
+    if (fetchError) return failPartway(`${sheet.name}: ${fetchError.message}`);
     const existing = new Map(
       (existingRows ?? []).map((r) => [`${r.month}|${r.field_id}`, Number(r.amount ?? 0)])
     );
@@ -149,7 +176,7 @@ export async function importExcelAction(parsed: ParsedSheet[], filename: string 
         continue;
       }
       const hadAny = Object.keys(amounts).some((fieldId) => existing.has(`${monthStr}|${fieldId}`));
-      const { error: upsertError } = await admin.from('revenue_entries').upsert(
+      const { data: writtenRows, error: upsertError } = await admin.from('revenue_entries').upsert(
         changed.map(([fieldId, amount]) => ({
           month: monthStr,
           field_id: fieldId,
@@ -157,8 +184,13 @@ export async function importExcelAction(parsed: ParsedSheet[], filename: string 
           created_by: user.id,
         })),
         { onConflict: 'month,field_id' }
-      );
-      if (upsertError) return { error: `${sheet.name}: ${upsertError.message}`, inserted, updated, skipped, warnings };
+      ).select('field_id');
+      if (upsertError) return failPartway(`${sheet.name} ${monthStr}: ${upsertError.message}`);
+      if ((writtenRows?.length ?? 0) !== changed.length) {
+        return failPartway(
+          `${sheet.name} ${monthStr}: only ${writtenRows?.length ?? 0} of ${changed.length} values were confirmed saved`
+        );
+      }
       if (hadAny) updated++;
       else inserted++;
     }
@@ -237,16 +269,7 @@ export async function importExcelAction(parsed: ParsedSheet[], filename: string 
     }
   }
 
-  await admin.from('audit_log').insert({
-    user_id: user.id,
-    user_name: perms.profile?.full_name ?? perms.profile?.display_name ?? user.email ?? 'Unknown',
-    user_role: perms.role,
-    user_email: user.email ?? null,
-    action: 'IMPORT',
-    table_name: 'import',
-    row_id: filename,
-    new_value: { inserted, updated, skipped, warnings: warnings.length, filename },
-  });
+  await writeImportAudit('completed');
 
   revalidatePath('/dashboard');
   revalidatePath('/streams');

@@ -73,7 +73,7 @@ export async function signUpIfInvited(payload: {
   }
 
   // 4. Create user_profiles
-  const { error: profileErr } = await admin.from('user_profiles').upsert(
+  const { data: savedProfile, error: profileErr } = await admin.from('user_profiles').upsert(
     {
       id: newUser.user.id,
       email: trimmedEmail,
@@ -89,15 +89,31 @@ export async function signUpIfInvited(payload: {
       onboarded_at: new Date().toISOString(),
     },
     { onConflict: 'id' }
-  );
+  ).select('role, status').maybeSingle();
 
-  if (profileErr) {
-    // User created but profile failed - they can still sign in; profile trigger might create a basic one
-    // Log but don't fail
+  // Previously a failure here was ignored. The auth trigger has already made a
+  // pending *viewer* row, so the person would silently get the wrong role and
+  // no access, while the invite was consumed. Undo the account instead, so the
+  // invite stays valid and they can simply try again.
+  if (profileErr || !savedProfile || savedProfile.role !== role || savedProfile.status !== 'active') {
+    await admin.auth.admin.deleteUser(newUser.user.id);
+    return {
+      error:
+        'Your account could not be set up with the access you were invited with, so it was not created. ' +
+        'Your invitation is still valid - please try again, or ask your admin for help.',
+    };
   }
 
-  // 5. Mark invite as used
-  await admin.from('invited_emails').update({ used_at: new Date().toISOString() }).eq('id', invite.id);
+  // 5. Mark invite as used (verified, so an invite cannot be reused by accident)
+  const { data: usedInvite, error: markUsedErr } = await admin
+    .from('invited_emails')
+    .update({ used_at: new Date().toISOString() })
+    .eq('id', invite.id)
+    .select('id')
+    .maybeSingle();
+  if (markUsedErr || !usedInvite) {
+    console.error('[signup] account created but invite not marked used', invite.id, markUsedErr?.message);
+  }
 
   return { error: null };
 }

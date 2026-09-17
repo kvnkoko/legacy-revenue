@@ -41,7 +41,7 @@ async function logUserManagementAudit(
   newValue: unknown
 ) {
   const { supabase, user, actorProfile } = await getActor();
-  await supabase.from('audit_log').insert({
+  const { error } = await supabase.from('audit_log').insert({
     user_id: user.id,
     user_name: (actorProfile?.full_name as string | undefined) ?? user.email ?? 'Unknown',
     user_role: (actorProfile?.role as string | undefined) ?? 'admin',
@@ -52,6 +52,15 @@ async function logUserManagementAudit(
     old_value: oldValue,
     new_value: newValue,
   });
+  if (error) {
+    // The change itself already succeeded, so don't claim it failed — but an
+    // unrecorded change must never pass silently in an audited system.
+    console.error('[audit] user-management audit row not written', rowId, error.message);
+    throw new Error(
+      `The change WAS saved, but it could not be recorded in the Audit Log (${error.message}). ` +
+        'Please tell your admin so the change can be noted manually.'
+    );
+  }
 }
 
 export async function updateManagedUserProfile(payload: UserProfileUpdatePayload) {
@@ -171,7 +180,7 @@ export async function inviteManagedUser(payload: {
   const adminClient = createAdminClient();
 
   // Use invited_emails table - user will sign up on /signup with this email
-  const { error } = await adminClient.from('invited_emails').upsert(
+  const { data: savedInvite, error } = await adminClient.from('invited_emails').upsert(
     {
       email: trimmedEmail,
       full_name: payload.fullName,
@@ -185,8 +194,9 @@ export async function inviteManagedUser(payload: {
       notes: payload.message ?? null,
     },
     { onConflict: 'email' }
-  );
+  ).select('email, role, used_at').maybeSingle();
   if (error) throw new Error(error.message);
+  assertSaved(savedInvite, { email: trimmedEmail, role: payload.role, used_at: null }, `The invite for ${trimmedEmail}`);
   await logUserManagementAudit('user_management', trimmedEmail, 'IMPORT', null, {
     event: 'invite',
     email: trimmedEmail,
@@ -195,21 +205,55 @@ export async function inviteManagedUser(payload: {
   revalidatePath('/admin/users');
 }
 
+/**
+ * Refreshes a pending invite. This app invites people through invited_emails +
+ * the /signup page, and never sends email itself. The previous version called
+ * Supabase's inviteUserByEmail, a different system: it could create a login
+ * account that the handle_new_user trigger turns into a pending VIEWER, which
+ * then blocked the person's real signup with the role they were invited with,
+ * while the admin was told "Invite resent".
+ */
 export async function resendManagedUserInvite(payload: { email: string }) {
   await requirePermission('can_manage_users');
   const { user } = await getActor();
   await assertAdminRateLimit(user.id, 'resend invite');
+  const email = payload.email.trim().toLowerCase();
   const adminClient = createAdminClient();
-  const invite = await adminClient.auth.admin.inviteUserByEmail(payload.email);
-  if (invite.error) throw new Error(invite.error.message);
+  const { data: refreshed, error } = await adminClient
+    .from('invited_emails')
+    .update({ invited_at: new Date().toISOString(), invited_by: user.id })
+    .eq('email', email)
+    .is('used_at', null)
+    .select('email')
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!refreshed) {
+    throw new Error(
+      `There is no open invite for ${email}. If they have already signed up, they can simply sign in. Otherwise, invite them again.`
+    );
+  }
+  await logUserManagementAudit('user_management', email, 'UPDATE', null, { event: 'invite_refreshed', email });
+  revalidatePath('/admin/users');
+  return { signupPath: '/signup', email };
 }
 
 /** Remove a pending invite (they can be re-invited later). */
 export async function revokePendingInvite(payload: { inviteId: string }) {
   await requirePermission('can_manage_users');
+  const { user } = await getActor();
   const adminClient = createAdminClient();
-  const { error } = await adminClient.from('invited_emails').delete().eq('id', payload.inviteId);
+  const { data: removed, error } = await adminClient
+    .from('invited_emails')
+    .delete()
+    .eq('id', payload.inviteId)
+    .select('email, role')
+    .maybeSingle();
   if (error) throw new Error(error.message);
+  if (!removed) throw new Error('That invite no longer exists, so nothing was revoked. Please reload the page.');
+  await logUserManagementAudit('user_management', removed.email as string, 'DELETE', removed, {
+    event: 'invite_revoked',
+    by: user.id,
+  });
   revalidatePath('/admin/users');
 }
 
@@ -222,9 +266,11 @@ export async function sendManagedUserPasswordReset(payload: { email: string }) {
 
 export async function forceSignOutManagedUser(payload: { userId: string }) {
   await requirePermission('can_manage_users');
+  await getActor();
   const adminClient = createAdminClient();
   const { error } = await adminClient.auth.admin.signOut(payload.userId);
   if (error) throw new Error(error.message);
+  await logUserManagementAudit('user_management', payload.userId, 'UPDATE', null, { event: 'sessions_invalidated' });
 }
 
 export async function deleteManagedUser(payload: { userId: string; fullNameConfirm: string }) {
@@ -243,6 +289,11 @@ export async function deleteManagedUser(payload: { userId: string; fullNameConfi
   const adminClient = createAdminClient();
   const { error } = await adminClient.auth.admin.deleteUser(payload.userId);
   if (error) throw new Error(error.message);
+  // Confirm the account is really gone before recording a deletion.
+  const { data: stillThere } = await adminClient.auth.admin.getUserById(payload.userId);
+  if (stillThere?.user) {
+    throw new Error('The account was not deleted. Nothing has been recorded as removed. Please try again.');
+  }
   await logUserManagementAudit('user_management', payload.userId, 'DELETE', target, null);
   revalidatePath('/admin/users');
 }
@@ -257,5 +308,7 @@ export async function setUserPassword(payload: { userId: string; newPassword: st
     password: payload.newPassword,
   });
   if (error) throw new Error(error.message);
+  // Record THAT the password was set and by whom; never the password itself.
+  await logUserManagementAudit('user_management', payload.userId, 'UPDATE', null, { event: 'password_set_by_admin' });
   revalidatePath('/admin/users');
 }

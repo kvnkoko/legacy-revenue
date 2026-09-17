@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
 import { requirePermission } from '@/lib/authz/server';
 import { assertAdminRateLimit } from '@/lib/authz/rate-limit';
+import { assertRowsAffected, assertSaved } from '@/lib/db/verify-write';
 
 // All writes go through the user's client: RLS (admin OR can_configure_streams)
 // is the authority, and the 013 DB triggers audit every change with labels.
@@ -118,8 +119,21 @@ export async function createStream(input: {
     });
   }
   if (fieldRows.length) {
-    const { error: fieldError } = await supabase.from('stream_fields').insert(fieldRows);
-    if (fieldError) throw new Error(fieldError.message);
+    const { data: insertedFields, error: fieldError } = await supabase
+      .from('stream_fields')
+      .insert(fieldRows)
+      .select('id');
+    if (fieldError || (insertedFields?.length ?? 0) !== fieldRows.length) {
+      // Don't leave a half-created stream with no (or some) fields behind: it
+      // would appear in Data Entry with missing columns. Remove it and report.
+      await supabase.from('stream_fields').delete().eq('stream_id', stream.id);
+      await supabase.from('revenue_streams').delete().eq('id', stream.id);
+      throw new Error(
+        `The stream "${name}" could not be created because its fields were not saved` +
+          (fieldError ? `: ${fieldError.message}` : '.') +
+          ' Nothing was kept. Please try again.'
+      );
+    }
   }
 
   revalidateConfigPaths();
@@ -158,8 +172,15 @@ export async function updateStream(input: {
     patch.attributes = attributes;
   }
 
-  const { error } = await supabase.from('revenue_streams').update(patch).eq('id', input.id);
+  const { data: saved, error } = await supabase
+    .from('revenue_streams')
+    .update(patch)
+    .eq('id', input.id)
+    .select('*')
+    .maybeSingle();
   if (error) throw new Error(error.message);
+  const expected: Record<string, unknown> = { ...patch };
+  assertSaved(saved, expected, `Changes to "${current.name}"`);
   revalidateConfigPaths();
 }
 
@@ -185,8 +206,9 @@ export async function deleteStream(id: string) {
       );
     }
   }
-  const { error } = await supabase.from('revenue_streams').delete().eq('id', id);
+  const { data: removed, error } = await supabase.from('revenue_streams').delete().eq('id', id).select('id');
   if (error) throw new Error(error.message);
+  assertRowsAffected(removed, `Deleting "${stream.name}"`);
   revalidateConfigPaths();
 }
 
@@ -232,18 +254,19 @@ export async function createField(input: {
     ? `${slugify(input.groupValues[0])}_${slugify(input.groupValues[1])}`
     : slugify(label);
 
-  const { error } = await supabase.from('stream_fields').insert({
+  const { data: createdField, error } = await supabase.from('stream_fields').insert({
     stream_id: input.streamId,
     slug: fieldSlug,
     label,
     group_values: input.groupValues ?? null,
     sort: Number(maxSort?.sort ?? 0) + 10,
     attributes: { import: { sheet: sheetName, column_keys: [fieldSlug] } },
-  });
+  }).select('id').maybeSingle();
   if (error) {
     if (error.code === '23505') throw new Error(`A field with that name already exists in this stream.`);
     throw new Error(error.message);
   }
+  assertSaved(createdField, {}, `The field "${label}"`);
   revalidateConfigPaths();
 }
 
@@ -281,8 +304,14 @@ export async function updateField(input: {
   }
   if (input.sort !== undefined) patch.sort = input.sort;
   if (input.isActive !== undefined) patch.is_active = input.isActive;
-  const { error } = await supabase.from('stream_fields').update(patch).eq('id', input.id);
+  const { data: saved, error } = await supabase
+    .from('stream_fields')
+    .update(patch)
+    .eq('id', input.id)
+    .select('*')
+    .maybeSingle();
   if (error) throw new Error(error.message);
+  assertSaved(saved, patch, 'Changes to this field');
   revalidateConfigPaths();
 }
 
@@ -297,8 +326,9 @@ export async function deleteField(id: string) {
       `This field has ${count} recorded values. Archive it instead — revenue data is never hard-deleted with its field.`
     );
   }
-  const { error } = await supabase.from('stream_fields').delete().eq('id', id);
+  const { data: removed, error } = await supabase.from('stream_fields').delete().eq('id', id).select('id');
   if (error) throw new Error(error.message);
+  assertRowsAffected(removed, 'Deleting this field');
   revalidateConfigPaths();
 }
 
@@ -309,23 +339,46 @@ export async function setFieldLinks(input: {
 }) {
   const { supabase } = await getConfigContext();
 
-  const { error: delError } = await supabase
+  // Links decide which totals a field counts toward, so losing them silently
+  // changes reported numbers. Snapshot first so a failed replace can be undone.
+  const { data: previous, error: readError } = await supabase
+    .from('field_links')
+    .select('source_field_id, target_stream_id, target_bucket_slug, target_bucket_label, sort')
+    .eq('source_field_id', input.fieldId);
+  if (readError) throw new Error(readError.message);
+
+  const { data: deleted, error: delError } = await supabase
     .from('field_links')
     .delete()
-    .eq('source_field_id', input.fieldId);
+    .eq('source_field_id', input.fieldId)
+    .select('id');
   if (delError) throw new Error(delError.message);
+  // Zero deletions is only legitimate when there was nothing to delete.
+  if ((deleted?.length ?? 0) !== (previous?.length ?? 0)) {
+    throw new Error(
+      'The existing "counts toward" links could not be replaced, so nothing was changed. Please reload and try again.'
+    );
+  }
 
   if (input.links.length) {
-    const { error } = await supabase.from('field_links').insert(
-      input.links.map((l, i) => ({
-        source_field_id: input.fieldId,
-        target_stream_id: l.targetStreamId,
-        target_bucket_slug: slugify(l.bucketSlug),
-        target_bucket_label: l.bucketLabel.trim() || l.bucketSlug,
-        sort: (i + 1) * 10,
-      }))
-    );
-    if (error) throw new Error(error.message);
+    const rows = input.links.map((l, i) => ({
+      source_field_id: input.fieldId,
+      target_stream_id: l.targetStreamId,
+      target_bucket_slug: slugify(l.bucketSlug),
+      target_bucket_label: l.bucketLabel.trim() || l.bucketSlug,
+      sort: (i + 1) * 10,
+    }));
+    const { data: inserted, error } = await supabase.from('field_links').insert(rows).select('id');
+    if (error || (inserted?.length ?? 0) !== rows.length) {
+      // Put the old links back so totals are exactly as they were.
+      if (inserted?.length) {
+        await supabase.from('field_links').delete().eq('source_field_id', input.fieldId);
+      }
+      if (previous?.length) await supabase.from('field_links').insert(previous);
+      throw new Error(
+        `The new links were not saved${error ? `: ${error.message}` : ''}. The previous links have been restored, so totals are unchanged.`
+      );
+    }
   }
   revalidateConfigPaths();
 }
@@ -348,7 +401,7 @@ export async function createDerivedStream(input: { name: string; color?: string 
     .order('sort', { ascending: false })
     .limit(1)
     .maybeSingle();
-  const { error } = await supabase.from('revenue_streams').insert({
+  const { data: created, error } = await supabase.from('revenue_streams').insert({
     slug,
     name,
     color: input.color ?? null,
@@ -356,10 +409,11 @@ export async function createDerivedStream(input: { name: string; color?: string 
     kind: 'derived',
     attributes,
     created_by: user.id,
-  });
+  }).select('id').maybeSingle();
   if (error) {
     if (error.code === '23505') throw new Error(`A stream named "${name}" (slug ${slug}) already exists.`);
     throw new Error(error.message);
   }
+  assertSaved(created, {}, `The stream "${name}"`);
   revalidateConfigPaths();
 }
