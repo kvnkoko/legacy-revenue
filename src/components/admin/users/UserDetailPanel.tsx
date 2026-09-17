@@ -211,13 +211,41 @@ export function UserDetailPanel({
       }
     });
 
-  const saveStatus = () =>
+  const roleChanged = role !== (user?.role ?? 'viewer');
+  const statusChanged = status !== (user?.status ?? 'active');
+
+  /**
+   * Saves BOTH dropdowns in this header. Previously this button was labelled
+   * "Save Status" and saved only the status, while the role dropdown sitting
+   * beside it merely changed local state — so changing someone's role here and
+   * pressing save reported "Status updated" and silently discarded the role.
+   */
+  const saveRoleAndStatus = () =>
     startTransition(async () => {
+      const saved: string[] = [];
       try {
-        await updateManagedUserStatus({ userId: user.id, status });
-        toast.success(`Status updated to ${status}`);
+        if (roleChanged) {
+          await updateManagedUserRoleAndPermissions({
+            userId: user.id,
+            role: (role === 'staff' ? 'viewer' : role) as Exclude<Role, 'staff'>,
+            permissions,
+          });
+          saved.push(`role is now ${ROLE_LABELS[role]}`);
+        }
+        if (statusChanged) {
+          await updateManagedUserStatus({ userId: user.id, status });
+          saved.push(`status is now ${status}`);
+        }
+        if (!saved.length) {
+          toast.info('Nothing to save — no changes were made.');
+          return;
+        }
+        toast.success(`Saved: ${saved.join(' and ')}.`);
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : 'Failed to update status');
+        // Anything already written stays written; say so rather than implying
+        // the whole change was applied or discarded.
+        const msg = error instanceof Error ? error.message : 'Failed to save';
+        toast.error(saved.length ? `${saved.join(' and ')} saved, but then: ${msg}` : msg);
       }
     });
 
@@ -255,8 +283,17 @@ export function UserDetailPanel({
             <option value="suspended">Suspended</option>
             <option value="pending">Pending</option>
           </select>
-          <button type="button" onClick={saveStatus} className="rounded-lg border border-border px-3 py-2 text-caption text-primary">
-            Save Status
+          <button
+            type="button"
+            onClick={saveRoleAndStatus}
+            disabled={pending || (!roleChanged && !statusChanged)}
+            className="rounded-lg border border-gold/50 bg-gold/10 px-3 py-2 text-caption font-medium text-gold disabled:border-border disabled:bg-transparent disabled:text-muted"
+          >
+            {pending
+              ? 'Saving…'
+              : roleChanged || statusChanged
+                ? 'Save role & status'
+                : 'Saved'}
           </button>
         </div>
       </div>

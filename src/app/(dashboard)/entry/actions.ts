@@ -5,6 +5,7 @@ import { revalidatePath } from 'next/cache';
 import { requirePermission } from '@/lib/authz/server';
 import { getStreamConfig } from '@/lib/streams/server';
 import { getAppSettings } from '@/app/(dashboard)/admin/settings/actions';
+import { assertRowsAffected, assertSaved } from '@/lib/db/verify-write';
 
 function assertMonth(month: string) {
   if (!/^\d{4}-\d{2}-01$/.test(month)) {
@@ -105,14 +106,28 @@ export async function saveStreamEntries({
     }
   }
 
-  const { error } = await supabase.from('revenue_entries').upsert(
-    changed.map(({ fieldId, amount }) => ({ month, field_id: fieldId, amount })),
-    { onConflict: 'month,field_id' }
-  );
+  // .select() so the database tells us which rows it actually wrote. Without
+  // it a write blocked by row-level security returns no error and no rows, and
+  // this action would report every value as saved when none were stored.
+  const { data: written, error } = await supabase
+    .from('revenue_entries')
+    .upsert(
+      changed.map(({ fieldId, amount }) => ({ month, field_id: fieldId, amount })),
+      { onConflict: 'month,field_id' }
+    )
+    .select('field_id, amount');
   if (error) throw new Error(error.message);
+  assertRowsAffected(written, `The ${stream.name} figures for ${month}`);
+  if (written.length !== changed.length) {
+    throw new Error(
+      `Only ${written.length} of ${changed.length} values for ${stream.name} were saved. ` +
+        'Please reload this month and check every figure before entering more.'
+    );
+  }
 
   revalidateDataPaths();
-  return { saved: changed.length, month, stream: stream.name, unchanged: false };
+  // Report what the database confirmed, never what we intended to write.
+  return { saved: written.length, month, stream: stream.name, unchanged: false };
 }
 
 /** Edits a single cell (stream field × month). */
@@ -128,11 +143,18 @@ export async function updateEntry({
   await requirePermission('can_edit_data');
   assertMonth(month);
   const supabase = await createClient();
-  const { error } = await supabase
+  const rounded = round2(Number(amount));
+  const { data: written, error } = await supabase
     .from('revenue_entries')
-    .upsert({ month, field_id: fieldId, amount: round2(Number(amount)) }, { onConflict: 'month,field_id' });
+    .upsert({ month, field_id: fieldId, amount: rounded }, { onConflict: 'month,field_id' })
+    .select('amount')
+    .maybeSingle();
   if (error) throw new Error(error.message);
+  // Confirms the stored amount equals what was typed, so "Saved" is never
+  // shown for a value the database did not keep.
+  assertSaved(written, { amount: rounded }, `The figure for ${month}`);
   revalidateDataPaths();
+  return { amount: Number(written?.amount ?? rounded), month };
 }
 
 /** Deletes an entire month of entries (audited row-by-row by the DB trigger). */

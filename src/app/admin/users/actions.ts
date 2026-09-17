@@ -7,6 +7,7 @@ import { requirePermission } from '@/lib/authz/server';
 import { assertAdminRateLimit } from '@/lib/authz/rate-limit';
 import { ADMIN_PERMISSIONS } from '@/lib/permission-presets';
 import { normalizePermissions } from '@/lib/authz/utils';
+import { assertSaved } from '@/lib/db/verify-write';
 import type { PermissionMap, Role } from '@/lib/authz/types';
 
 type UserProfileUpdatePayload = {
@@ -62,22 +63,25 @@ export async function updateManagedUserProfile(payload: UserProfileUpdatePayload
     .select('*')
     .eq('id', payload.userId)
     .maybeSingle();
-  const { error } = await supabase
+  const nextName = payload.full_name ?? before?.full_name ?? '';
+  // .select() makes the database return the row it wrote. A write blocked by
+  // row-level security returns no rows and no error, so an empty result here
+  // is the definitive signal that nothing was saved — more reliable than
+  // comparing optional text fields, where '' and NULL can differ harmlessly.
+  const { data: after, error } = await supabase
     .from('user_profiles')
     .update({
-      full_name: payload.full_name ?? before?.full_name ?? '',
+      full_name: nextName,
       display_name: payload.display_name ?? null,
       job_title: payload.job_title ?? null,
       department: payload.department ?? null,
       notes: payload.notes ?? null,
     })
-    .eq('id', payload.userId);
-  if (error) throw new Error(error.message);
-  const { data: after } = await supabase
-    .from('user_profiles')
-    .select('*')
     .eq('id', payload.userId)
+    .select('*')
     .maybeSingle();
+  if (error) throw new Error(error.message);
+  assertSaved(after, { full_name: nextName }, 'Profile details for this user');
   await logUserManagementAudit('user_management', payload.userId, 'UPDATE', before, after);
   revalidatePath('/admin/users');
 }
@@ -99,22 +103,24 @@ export async function updateManagedUserRoleAndPermissions(payload: {
   // Role defaults merged with per-user overrides; the DB guard trigger
   // re-derives the effective map as the final authority.
   const nextPermissions = payload.role === 'admin' ? ADMIN_PERMISSIONS : normalizePermissions(payload.role, payload.permissions);
-  const { error } = await supabase
+  // .select() returns the stored row, so this catches both a write blocked by
+  // row-level security (no rows returned) and a trigger that rewrote the role
+  // (value mismatch). Verified BEFORE claiming success or writing an audit
+  // row, so a change that did not happen is never reported as one that did.
+  const { data: after, error } = await supabase
     .from('user_profiles')
     .update({
       role: payload.role,
       permissions: nextPermissions,
     })
-    .eq('id', payload.userId);
-  if (error) throw new Error(error.message);
-
-  const { data: after } = await supabase
-    .from('user_profiles')
-    .select('*')
     .eq('id', payload.userId)
+    .select('*')
     .maybeSingle();
+  if (error) throw new Error(error.message);
+  assertSaved(after, { role: payload.role }, 'Role change for this user');
   await logUserManagementAudit('user_management', payload.userId, 'UPDATE', before, after);
   revalidatePath('/admin/users');
+  return { role: after?.role as Role, permissions: after?.permissions as PermissionMap };
 }
 
 export async function updateManagedUserStatus(payload: {
@@ -129,24 +135,24 @@ export async function updateManagedUserStatus(payload: {
     .select('*')
     .eq('id', payload.userId)
     .maybeSingle();
-  const { error } = await supabase
+  const { data: after, error } = await supabase
     .from('user_profiles')
     .update({ status: payload.status })
-    .eq('id', payload.userId);
+    .eq('id', payload.userId)
+    .select('*')
+    .maybeSingle();
   if (error) throw new Error(error.message);
+  // Verified before the sign-out below, so we never force someone out of the
+  // app on the strength of a suspension that was not actually recorded.
+  assertSaved(after, { status: payload.status }, 'Status change for this user');
 
   if (payload.status === 'suspended') {
     const adminClient = createAdminClient();
     await adminClient.auth.admin.signOut(payload.userId);
   }
-
-  const { data: after } = await supabase
-    .from('user_profiles')
-    .select('*')
-    .eq('id', payload.userId)
-    .maybeSingle();
   await logUserManagementAudit('user_management', payload.userId, 'UPDATE', before, after);
   revalidatePath('/admin/users');
+  return { status: after?.status as 'active' | 'suspended' | 'pending' };
 }
 
 export async function inviteManagedUser(payload: {
