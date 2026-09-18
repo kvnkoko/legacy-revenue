@@ -30,21 +30,40 @@ export function createClient() {
   }
 
   /*
-   * In the browser, talk to Supabase through this app's own origin (/sb, see
-   * the rewrite in next.config.mjs) instead of https://<project>.supabase.co.
+   * In the browser, Supabase traffic travels through this app's own origin
+   * (/sb, see the rewrite in next.config.mjs) instead of
+   * https://<project>.supabase.co, because staff on restricted networks could
+   * load the portal but every request to that host failed ("Failed to fetch").
    *
-   * Staff on restricted networks could load the portal but every sign-in died
-   * with "Failed to fetch", because the page came from our domain while the
-   * auth request went to a host their network blocks. Routing through our own
-   * origin removes that second host entirely. Server-side code keeps using the
-   * direct URL: it runs on Vercel, where the host is reachable, and it must not
-   * call back through its own rewrite.
+   * IMPORTANT: the project URL passed to createBrowserClient must stay the REAL
+   * Supabase URL. @supabase/ssr derives the session cookie name from it
+   * (sb-<project-ref>-auth-token). Passing the proxy URL renamed that cookie,
+   * so the browser and the server no longer read the same session: the server
+   * still saw a signed-in admin while the browser saw nobody and fell back to
+   * viewer defaults, and Sign Out cleared one cookie while the middleware kept
+   * redirecting on the other — an endless refresh.
    *
-   * Set NEXT_PUBLIC_SUPABASE_DIRECT=1 to go straight to Supabase again.
+   * So only the TRANSPORT is redirected, via a custom fetch. Cookie naming,
+   * token refresh and everything else behave exactly as before.
    */
+  const base = url.replace(/\/$/, '');
   const useProxy =
     typeof window !== 'undefined' && process.env.NEXT_PUBLIC_SUPABASE_DIRECT !== '1';
-  const browserUrl = useProxy ? `${window.location.origin}/sb` : url;
 
-  return createBrowserClient(browserUrl, key);
+  if (!useProxy) return createBrowserClient(url, key);
+
+  const toSameOrigin = (target: string) =>
+    target.startsWith(base) ? `${window.location.origin}/sb${target.slice(base.length)}` : target;
+
+  const proxyFetch: typeof fetch = (input, init) => {
+    if (typeof input === 'string') return fetch(toSameOrigin(input), init);
+    if (input instanceof URL) return fetch(toSameOrigin(input.toString()), init);
+    if (typeof Request !== 'undefined' && input instanceof Request) {
+      const rewritten = toSameOrigin(input.url);
+      return rewritten === input.url ? fetch(input, init) : fetch(new Request(rewritten, input), init);
+    }
+    return fetch(input, init);
+  };
+
+  return createBrowserClient(url, key, { global: { fetch: proxyFetch } });
 }
