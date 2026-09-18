@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { createClient } from '@/lib/supabase/client';
 import { usePermissions } from '@/hooks/usePermissions';
+import { signOutAndRedirect } from '@/lib/auth/sign-out';
 import { ROLE_LABELS } from '@/lib/authz/types';
 import {
   ChartBarIcon,
@@ -90,9 +91,8 @@ export function Sidebar({
       .filter((section) => section.items.length > 0);
   }, [perms]);
 
-  const signOut = async () => {
-    await supabase.auth.signOut();
-    window.location.href = '/login';
+  const signOut = () => {
+    void signOutAndRedirect();
   };
 
   const initials = useMemo(() => {

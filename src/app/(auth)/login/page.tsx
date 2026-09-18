@@ -22,11 +22,34 @@ function LoginForm() {
     e.preventDefault();
     setError(null);
     setLoading(true);
-    const supabase = createClient();
-    const { error: err } = await supabase.auth.signInWithPassword({ email, password });
+    let err: { message: string } | null = null;
+    try {
+      const supabase = createClient();
+      ({ error: err } = await supabase.auth.signInWithPassword({ email, password }));
+    } catch (thrown) {
+      err = { message: thrown instanceof Error ? thrown.message : 'Sign in failed' };
+    }
     setLoading(false);
     if (err) {
-      setError(err.message);
+      // "Failed to fetch" / "NetworkError" means the browser could not reach
+      // the server at all — usually the network or connection, not a wrong
+      // password. Staff were shown the raw text and understandably read it as
+      // the portal being broken.
+      const raw = err.message ?? '';
+      // Also catches the JSON-parse error the client throws when it receives an
+      // error page instead of a JSON reply ("Unexpected token 'I', "Internal
+      // S"... is not valid JSON"), which is a server/connection problem too.
+      const isNetwork =
+        /failed to fetch|networkerror|load failed|fetch failed|timeout|err_|is not valid json|unexpected token|<!doctype/i.test(
+          raw
+        );
+      setError(
+        isNetwork
+          ? 'We could not reach the server. Please check your internet connection and try again. If other websites work but this keeps failing, tell your admin — your network may be blocking it.'
+          : /invalid login credentials/i.test(raw)
+            ? 'That email or password is not correct. Please try again.'
+            : raw
+      );
       return;
     }
     router.push(redirect);

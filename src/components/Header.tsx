@@ -1,18 +1,17 @@
 'use client';
 
 import { createClient } from '@/lib/supabase/client';
-import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import type { User } from '@supabase/supabase-js';
 import { CurrencyCircleDollarIcon, ListIcon, MoonIcon, SignOutIcon, SunIcon } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { useCurrency } from '@/contexts/CurrencyContext';
+import { signOutAndRedirect } from '@/lib/auth/sign-out';
 
 export function Header({ onMenuClick }: { onMenuClick?: () => void }) {
   const { displayCurrency } = useCurrency();
   const [user, setUser] = useState<User | null>(null);
   const [theme, setTheme] = useState<'light' | 'dark'>('dark');
-  const router = useRouter();
   const supabase = createClient();
 
   useEffect(() => {
@@ -28,11 +27,10 @@ export function Header({ onMenuClick }: { onMenuClick?: () => void }) {
     setTheme(current === 'light' ? 'light' : 'dark');
   }, []);
 
-  const signOut = useCallback(async () => {
-    await supabase.auth.signOut();
-    router.push('/login');
-    router.refresh();
-  }, [supabase.auth, router]);
+  const signOut = useCallback(() => {
+    // Always leaves for /login even if the Supabase host is unreachable.
+    void signOutAndRedirect();
+  }, []);
 
   const toggleTheme = useCallback(() => {
     const next: 'light' | 'dark' = theme === 'dark' ? 'light' : 'dark';

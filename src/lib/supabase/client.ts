@@ -28,5 +28,23 @@ export function createClient() {
       'Supabase is still using placeholder values. Update .env.local with your project URL and anon key.'
     );
   }
-  return createBrowserClient(url, key);
+
+  /*
+   * In the browser, talk to Supabase through this app's own origin (/sb, see
+   * the rewrite in next.config.mjs) instead of https://<project>.supabase.co.
+   *
+   * Staff on restricted networks could load the portal but every sign-in died
+   * with "Failed to fetch", because the page came from our domain while the
+   * auth request went to a host their network blocks. Routing through our own
+   * origin removes that second host entirely. Server-side code keeps using the
+   * direct URL: it runs on Vercel, where the host is reachable, and it must not
+   * call back through its own rewrite.
+   *
+   * Set NEXT_PUBLIC_SUPABASE_DIRECT=1 to go straight to Supabase again.
+   */
+  const useProxy =
+    typeof window !== 'undefined' && process.env.NEXT_PUBLIC_SUPABASE_DIRECT !== '1';
+  const browserUrl = useProxy ? `${window.location.origin}/sb` : url;
+
+  return createBrowserClient(browserUrl, key);
 }

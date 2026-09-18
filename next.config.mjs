@@ -23,6 +23,11 @@ for (const name of ['NEXT_PUBLIC_SUPABASE_URL', 'NEXT_PUBLIC_SUPABASE_ANON_KEY']
   if (value) publicEnv[name] = value;
   else missingEnv.push(name);
 }
+// Optional escape hatch: skip the same-origin proxy and call Supabase directly.
+{
+  const direct = env.NEXT_PUBLIC_SUPABASE_DIRECT ?? process.env.NEXT_PUBLIC_SUPABASE_DIRECT;
+  if (direct) publicEnv.NEXT_PUBLIC_SUPABASE_DIRECT = direct;
+}
 
 // Fail the BUILD, not the running site. If these are absent on Vercel the
 // deployment is rejected and the previous working deployment keeps serving
@@ -43,6 +48,16 @@ const nextConfig = {
     optimizePackageImports: ['@phosphor-icons/react'],
   },
   env: publicEnv,
+  // Same-origin path for Supabase, so the browser never has to resolve
+  // *.supabase.co. Staff on networks that block that host (reported from
+  // Myanmar) could load the site but every sign-in failed with "Failed to
+  // fetch"; the request now goes to this app's own domain, which demonstrably
+  // works there, and Vercel forwards it server-side.
+  async rewrites() {
+    const target = publicEnv.NEXT_PUBLIC_SUPABASE_URL;
+    if (!target) return [];
+    return [{ source: '/sb/:path*', destination: `${target.replace(/\/$/, '')}/:path*` }];
+  },
 };
 
 export default nextConfig;

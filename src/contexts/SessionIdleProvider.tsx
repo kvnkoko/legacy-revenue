@@ -1,8 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
-import { createClient } from '@/lib/supabase/client';
+import { signOutAndRedirect } from '@/lib/auth/sign-out';
 
 export function SessionIdleProvider({
   children,
@@ -11,19 +10,15 @@ export function SessionIdleProvider({
   children: React.ReactNode;
   idleMinutes?: number;
 }) {
-  const router = useRouter();
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const ms = Math.max(5 * 60 * 1000, Math.min(480 * 60 * 1000, idleMinutes * 60 * 1000));
 
   const resetTimer = useCallback(() => {
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = setTimeout(async () => {
-      const supabase = createClient();
-      await supabase.auth.signOut();
-      router.push('/login?reason=idle');
-      router.refresh();
+      await signOutAndRedirect('/login?reason=idle');
     }, ms);
-  }, [ms, router]);
+  }, [ms]);
 
   useEffect(() => {
     if (idleMinutes <= 0) return;
