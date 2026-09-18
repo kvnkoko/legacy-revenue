@@ -1,5 +1,4 @@
 import { getStreamTotals, getSummaryMatrix } from '@/lib/streams/server';
-import { formatPercent } from '@/lib/utils';
 import { FormattedCurrency } from '@/components/ui/FormattedCurrency';
 import { RevenueTrendChart } from '@/components/dashboard/RevenueTrendChart';
 import { StreamDonutChart } from '@/components/dashboard/StreamDonutChart';
@@ -7,6 +6,8 @@ import { RecentActivity } from '@/components/dashboard/RecentActivity';
 import { QuickActions } from '@/components/dashboard/QuickActions';
 import { RevenueHistoryTable } from '@/components/history/RevenueHistoryTable';
 import { RevenueArchitectureDiagram } from '@/components/dashboard/RevenueArchitectureDiagram';
+import { ChartCard } from '@/components/charts/chart-kit';
+import { Explain, plainChange } from '@/components/charts/plain-language';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,6 +25,10 @@ function monthRange(start: string, end: string): string[] {
     cursor.setMonth(cursor.getMonth() + 1);
   }
   return out;
+}
+
+function monthName(month: string): string {
+  return new Date(month).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 }
 
 export default async function DashboardPage({
@@ -54,7 +59,7 @@ export default async function DashboardPage({
       ? ((totalRevenue - Number(prevRecordedMonth.total)) / Number(prevRecordedMonth.total)) * 100
       : null;
 
-  // YoY: same calendar month, previous year (when history reaches that far).
+  // Same calendar month one year earlier, when history reaches that far.
   const yoyGrowth = (() => {
     if (!latestRecordedMonth) return null;
     const d = new Date(latestRecordedMonth.month);
@@ -77,6 +82,22 @@ export default async function DashboardPage({
         return !best || val > best.value ? { name: s.name, color: s.color, value: val } : best;
       }, null)
     : null;
+  const bestStreamShare = bestStream && totalRevenue ? (bestStream.value / totalRevenue) * 100 : null;
+
+  /*
+   * Is the newest recorded month probably still being filled in?
+   *
+   * A partly-entered month makes the headline change look catastrophic (a -62%
+   * drop) when the real cause is that most streams have not been typed in yet.
+   * That is a fast route to a wrong business decision, so compare how many
+   * streams reported a figure with what is normal for recent months.
+   */
+  const reportingCount = (row: Record<string, unknown> | null) =>
+    row ? matrix.streams.filter((s) => Number(row[s.slug] ?? 0) > 0).length : 0;
+  const priorCounts = monthsAll.slice(-7, -1).map(reportingCount).filter((n) => n > 0).sort((a, b) => a - b);
+  const typicalReporting = priorCounts.length ? priorCounts[Math.floor(priorCounts.length / 2)] : 0;
+  const latestReporting = reportingCount(latestRecordedMonth);
+  const looksIncomplete = typicalReporting > 0 && latestReporting < typicalReporting * 0.7;
 
   const expected = monthRange('2025-01-01', monthKey(new Date()));
   const existingSet = new Set(monthsAll.map((m) => m.month));
@@ -91,83 +112,153 @@ export default async function DashboardPage({
     .filter((s) => !['ringtune', 'eauc', 'combo'].includes(s.slug))
     .reduce((sum, s) => sum + Number(latestRecordedMonth?.[s.slug] ?? 0), 0);
 
+  const latestLabel = latestRecordedMonth ? monthName(latestRecordedMonth.month) : 'the latest month';
+  const prevLabel = prevRecordedMonth ? monthName(prevRecordedMonth.month) : 'the month before';
+
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-title font-bold text-primary tracking-tight">Overview</h1>
-        <p className="text-body text-secondary mt-0.5">Revenue at a glance</p>
+        <p className="text-body text-secondary mt-0.5">
+          A simple summary of how much money we are making.
+        </p>
       </div>
+
       {!hasCurrentData && (
-        <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 text-amber-200">
-          {new Date(currentCalendarMonth).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })} data has not been entered yet.{' '}
-          <a href={`/entry?month=${currentCalendarMonth}`} className="underline">Add month data</a>
+        <div className="rounded-xl border border-border bg-elevated p-3.5 text-body text-secondary">
+          <span className="font-medium text-primary">{monthName(currentCalendarMonth)}</span> has not
+          been filled in yet.{' '}
+          <a href={`/entry?month=${currentCalendarMonth}`} className="font-medium text-gold underline">
+            Add this month&apos;s figures
+          </a>
         </div>
       )}
 
-      {/* KPI cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="rounded-xl border border-border bg-card p-5 hover:border-border-hover transition shadow-glow-gold">
-          <p className="text-caption font-medium text-secondary">Total Revenue (Latest Recorded Month)</p>
-          <p className="text-title font-bold text-gold mt-1"><FormattedCurrency value={totalRevenue} /></p>
-          <p className="text-micro text-muted mt-0.5">
-            {latestRecordedMonth
-              ? new Date(latestRecordedMonth.month).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
-              : 'No data yet'}
+      {looksIncomplete && (
+        <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4">
+          <p className="text-body font-semibold text-primary">
+            Careful: {latestLabel} may not be finished yet
+          </p>
+          <p className="mt-1 text-caption leading-relaxed text-secondary">
+            Only {latestReporting} of our {matrix.streams.length} streams have figures for{' '}
+            {latestLabel}, but a normal month has about {typicalReporting}. So the numbers below will
+            look lower than they really are, and the change from last month is probably not a real
+            drop in business. Please finish entering {latestLabel} before using these figures in a
+            report or a decision.
+          </p>
+          <a
+            href={`/entry?month=${latestRecordedMonth?.month ?? currentCalendarMonth}`}
+            className="mt-2 inline-block text-caption font-medium text-gold underline"
+          >
+            Finish entering {latestLabel}
+          </a>
+        </div>
+      )}
+
+      {/* ============ Headline numbers, in plain language ============ */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="rounded-2xl border border-gold/40 bg-gold/5 p-5 shadow-glow-gold">
+          <p className="text-micro uppercase tracking-wide text-secondary">Money earned</p>
+          <p className="mt-1 text-display font-bold tabular-nums text-gold">
+            <FormattedCurrency value={totalRevenue} />
+          </p>
+          <p className="mt-0.5 text-micro text-muted">
+            in {latestRecordedMonth ? latestLabel : 'no month yet'}
+            {looksIncomplete ? ' · still being filled in' : ''}
           </p>
         </div>
-        <div className="rounded-xl border border-border bg-card p-5 hover:border-border-hover transition">
-          <p className="text-caption font-medium text-secondary">MoM Growth</p>
+
+        <div className="rounded-2xl border border-border bg-card p-5">
+          <p className="text-micro uppercase tracking-wide text-secondary">Compared with last month</p>
           <p
-            className={`text-title font-bold mt-1 ${
-              momGrowth != null && momGrowth < 0 ? 'text-danger' : 'text-gold'
+            className={`mt-1 text-display font-bold capitalize ${
+              looksIncomplete ? 'text-secondary' : momGrowth != null && momGrowth < 0 ? 'text-danger' : 'text-gold'
             }`}
           >
-            {momGrowth != null ? formatPercent(momGrowth) : '—'}
+            {momGrowth != null ? plainChange(momGrowth) : '—'}
           </p>
-          {yoyGrowth != null && (
-            <p className={`text-micro mt-0.5 ${yoyGrowth < 0 ? 'text-danger' : 'text-secondary'}`}>
-              YoY: {formatPercent(yoyGrowth)}
-            </p>
-          )}
+          <p className="mt-0.5 text-micro text-muted">
+            {looksIncomplete
+              ? 'not reliable until the month is complete'
+              : `${latestLabel} against ${prevLabel}`}
+          </p>
         </div>
-        <div className="rounded-xl border border-border bg-card p-5 hover:border-border-hover transition">
-          <p className="text-caption font-medium text-secondary">YTD Total {latestRecordedYear ? `(${latestRecordedYear})` : ''}</p>
-          <p className="text-title font-bold text-primary mt-1"><FormattedCurrency value={ytdTotal} /></p>
+
+        <div className="rounded-2xl border border-border bg-card p-5">
+          <p className="text-micro uppercase tracking-wide text-secondary">
+            Earned in {latestRecordedYear ?? 'this year'} so far
+          </p>
+          <p className="mt-1 text-display font-bold tabular-nums text-primary">
+            <FormattedCurrency value={ytdTotal} />
+          </p>
+          <p className="mt-0.5 text-micro text-muted">every month of {latestRecordedYear ?? '—'} added together</p>
         </div>
-        <div className="rounded-xl border border-border bg-card p-5 hover:border-border-hover transition">
-          <p className="text-caption font-medium text-secondary">Best Performing Stream</p>
-          <p className="text-title font-bold mt-1" style={{ color: bestStream?.color }}>
+
+        <div className="rounded-2xl border border-border bg-card p-5">
+          <p className="text-micro uppercase tracking-wide text-secondary">Biggest earner</p>
+          <p className="mt-1 text-title font-bold" style={{ color: bestStream?.color }}>
             {bestStream?.name ?? '—'}
           </p>
-          {bestStream && (
-            <p className="text-micro text-muted mt-0.5"><FormattedCurrency value={bestStream.value} /></p>
-          )}
+          <p className="mt-0.5 text-micro text-muted">
+            {bestStreamShare != null
+              ? `${bestStreamShare.toFixed(0)}% of the money in ${latestLabel}`
+              : 'no data yet'}
+          </p>
         </div>
       </div>
 
-      {/* Quick actions */}
       <QuickActions />
       <div className="text-left sm:text-right">
         <a href={loadAll ? '/dashboard' : '/dashboard?all=1'} className="text-caption text-secondary underline">
-          {loadAll ? 'Show recent 12 months' : 'Load all months'}
+          {loadAll ? 'Show only the last 12 months' : 'Show every month we have'}
         </a>
       </div>
 
-      {/* Charts row */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        <div className="lg:col-span-2 rounded-xl border border-border bg-card p-5">
-          <h2 className="text-body font-semibold text-primary mb-4">Revenue trend</h2>
+      {/* ============ Charts ============ */}
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
+        <ChartCard
+          title="How much money do we make each month?"
+          subtitle="Taller means we earned more that month. Each colour is one stream."
+          className="lg:col-span-2"
+        >
           <RevenueTrendChart data={months} streams={matrix.streams} />
-        </div>
-        <div className="rounded-xl border border-border bg-card p-5">
-          <h2 className="text-body font-semibold text-primary mb-4">Latest recorded month by stream</h2>
+          <Explain
+            shows="The coloured bands stack up to the month's total, so you can see both the total and which streams made it up. Use the buttons above the chart to look at a shorter or longer period."
+            means={
+              momGrowth != null && !looksIncomplete
+                ? `Compared with ${prevLabel}, the total ${plainChange(momGrowth)}${
+                    yoyGrowth != null ? `, and against the same month last year it ${plainChange(yoyGrowth)}` : ''
+                  }. Watch the direction over several months rather than reacting to one month on its own.`
+                : looksIncomplete
+                  ? `${latestLabel} is not finished, so the last part of this line will keep rising as figures are entered. Judge the trend from the completed months only.`
+                  : undefined
+            }
+          />
+        </ChartCard>
+
+        <ChartCard
+          title={`Where did the money come from in ${latestRecordedMonth ? latestLabel : 'the latest month'}?`}
+          subtitle="Biggest earner first, with its share of the total"
+        >
           <StreamDonutChart data={latestRecordedMonth} streams={matrix.streams} />
-        </div>
+          <Explain
+            shows="Each colour is one revenue stream. The percentage is that stream's share of everything we earned that month. Smaller streams are grouped together as “Other” so the colours stay easy to tell apart."
+            means={
+              bestStream && bestStreamShare != null
+                ? bestStreamShare > 50
+                  ? `${bestStream.name} alone brought ${bestStreamShare.toFixed(0)}% of the money. That is a lot to depend on one partner — worth growing a second stream.`
+                  : `${bestStream.name} was our biggest earner with ${bestStreamShare.toFixed(0)}%. No single stream carries the whole business, which is healthier.`
+                : undefined
+            }
+          />
+        </ChartCard>
       </div>
 
-      {/* Recent activity */}
-      <div className="rounded-xl border border-border bg-card p-5">
-        <h2 className="text-body font-semibold text-primary mb-4">Recent data entry activity</h2>
+      <div className="rounded-2xl border border-border bg-card p-5 sm:p-6">
+        <h2 className="text-body font-semibold text-primary">Who changed the numbers recently</h2>
+        <p className="mt-0.5 mb-4 text-caption text-secondary">
+          The newest edits and imports, so you can see whose figures you are looking at.
+        </p>
         <RecentActivity />
       </div>
 

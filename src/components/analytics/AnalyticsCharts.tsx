@@ -13,7 +13,7 @@ import {
   tooltipStyle,
   useChartTheme,
 } from '@/components/charts/chart-kit';
-import { Explain, plainChange, plainMoney } from '@/components/analytics/plain-language';
+import { Explain, plainChange, plainMoney } from '@/components/charts/plain-language';
 
 type Row = Record<string, unknown>;
 type SummaryStream = { slug: string; name: string; color: string };

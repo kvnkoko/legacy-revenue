@@ -57,7 +57,7 @@ export function RevenueTrendChart({ data, streams }: { data: Row[]; streams: Tre
   if (!chartData.length) {
     return (
       <div className="flex h-64 items-center justify-center text-secondary">
-        No data yet. Add monthly data or import Excel.
+        No figures yet. Add a month in Data Entry, or import your Excel file.
       </div>
     );
   }
@@ -68,7 +68,7 @@ export function RevenueTrendChart({ data, streams }: { data: Row[]; streams: Tre
         <TimeRangeSelector value={range} onChange={setRange} />
         <label className="text-caption text-secondary">
           <input type="checkbox" checked={showRolling} onChange={(e) => setShowRolling(e.target.checked)} className="mr-2" />
-          3M rolling average
+          Smooth out unusual months
         </label>
       </div>
       {range === 'CUSTOM' && (
@@ -104,7 +104,7 @@ export function RevenueTrendChart({ data, streams }: { data: Row[]; streams: Tre
               />
             ))}
             {showRolling && (
-              <Line isAnimationActive={false} type="monotone" dataKey="rolling3" stroke={theme.axis} strokeDasharray="5 4" strokeWidth={2} dot={false} name="3M average" />
+              <Line isAnimationActive={false} type="monotone" dataKey="rolling3" stroke={theme.axis} strokeDasharray="5 4" strokeWidth={2} dot={false} name="3-month average" />
             )}
             {chartData.length > 18 && <Brush dataKey="monthLabel" height={18} stroke="#d4af37" travellerWidth={8} fill="transparent" />}
           </AreaChart>

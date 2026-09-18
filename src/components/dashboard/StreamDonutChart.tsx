@@ -12,7 +12,7 @@ export function StreamDonutChart({ data, streams }: { data: Row | null; streams:
   if (!data) {
     return (
       <div className="flex h-64 items-center justify-center text-secondary">
-        No data for current month.
+        No figures for this month yet.
       </div>
     );
   }
@@ -25,7 +25,7 @@ export function StreamDonutChart({ data, streams }: { data: Row | null; streams:
   if (!slices.length) {
     return (
       <div className="flex h-64 items-center justify-center text-secondary">
-        No stream data for this month.
+        No stream earned anything this month.
       </div>
     );
   }
