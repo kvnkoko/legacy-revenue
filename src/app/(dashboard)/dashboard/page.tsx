@@ -7,7 +7,8 @@ import { QuickActions } from '@/components/dashboard/QuickActions';
 import { RevenueHistoryTable } from '@/components/history/RevenueHistoryTable';
 import { RevenueArchitectureDiagram } from '@/components/dashboard/RevenueArchitectureDiagram';
 import { ChartCard } from '@/components/charts/chart-kit';
-import { Explain, plainChange } from '@/components/charts/plain-language';
+import { Explain } from '@/components/charts/plain-language';
+import { plainChange } from '@/lib/plain-language';
 
 export const dynamic = 'force-dynamic';
 
