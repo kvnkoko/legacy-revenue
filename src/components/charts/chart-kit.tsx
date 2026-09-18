@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { isLightTheme, OTHER_COLOR } from '@/lib/series-palette';
 
 /**
  * Shared chart primitives so every chart reads as one system:
@@ -9,9 +10,6 @@ import { useEffect, useState } from 'react';
  *    a person (or a colorblind person) can tell apart — the #1 fix for the
  *    14-slice donut.
  */
-
-/** Neutral gray used for the "Other" bucket — never a categorical hue. */
-export const OTHER_COLOR = '#6b7280';
 
 function readVar(name: string, fallback: string): string {
   if (typeof window === 'undefined') return fallback;
@@ -24,6 +22,8 @@ function readVar(name: string, fallback: string): string {
 export type ChartTheme = {
   grid: string;
   axis: string;
+  /** True when the viewer is on the light theme; series colors differ per mode. */
+  light: boolean;
   tooltip: { background: string; border: string; text: string };
 };
 
@@ -32,6 +32,7 @@ export function useChartTheme(): ChartTheme {
   const compute = (): ChartTheme => ({
     grid: readVar('--color-border', '#1e2535'),
     axis: readVar('--color-secondary', '#8892a4'),
+    light: isLightTheme(),
     tooltip: {
       background: readVar('--tooltip-bg', '#161b24'),
       border: readVar('--tooltip-border', '#1e2535'),
@@ -153,5 +154,89 @@ export function ChartCard({
       </div>
       {children}
     </section>
+  );
+}
+
+/**
+ * Headline number tile.
+ *
+ * Sizing is driven by the VALUE'S MAGNITUDE, not a fixed font size. The old
+ * tiles used one 2rem size for everything, so "MMK 3,055,511,489" (17
+ * characters) spilled straight out of its card. Tiers are chosen from the MMK
+ * amount, which is the largest-magnitude currency here, so switching the
+ * display currency can only ever make the text shorter — never overflow.
+ *
+ * Long values also wrap to a second line rather than being clipped: this is an
+ * audit tool, so a figure is never truncated or ellipsised into ambiguity.
+ */
+export function StatTile({
+  label,
+  value,
+  sub,
+  magnitude,
+  accent = false,
+  dot,
+  valueColor,
+}: {
+  label: string;
+  value: React.ReactNode;
+  sub?: string;
+  /** Raw number behind `value`; picks the font tier. Omit for short text. */
+  magnitude?: number;
+  accent?: boolean;
+  /**
+   * Small colour mark shown before the value. Identity belongs to a mark, not
+   * to the words: colouring the text itself both fights the type hierarchy and
+   * reads as the rainbow effect we removed from the charts.
+   */
+  dot?: string;
+  /** Reserved for status meaning (a fall in revenue), never series identity. */
+  valueColor?: string;
+}) {
+  const digits = magnitude == null ? 0 : Math.abs(Math.round(magnitude)).toString().length;
+  // Digits + thousands separators + a 3-4 char currency prefix.
+  const size =
+    digits >= 10
+      ? 'text-[clamp(1.05rem,4.2cqw,1.4rem)]'
+      : digits >= 8
+        ? 'text-[clamp(1.15rem,5cqw,1.6rem)]'
+        : digits >= 6
+          ? 'text-[clamp(1.25rem,5.6cqw,1.8rem)]'
+          : 'text-[clamp(1.35rem,6cqw,2rem)]';
+
+  return (
+    <div
+      className={`flex min-w-0 flex-col rounded-2xl border p-5 ${
+        accent ? 'border-gold/40 bg-gold/[0.06]' : 'border-border bg-card'
+      }`}
+      style={{ containerType: 'inline-size' }}
+    >
+      <p
+        className="line-clamp-2 text-micro font-medium uppercase leading-snug tracking-[0.08em] text-secondary"
+        title={label}
+      >
+        {label}
+      </p>
+      <p
+        className={`mt-1.5 min-w-0 break-words font-bold leading-[1.1] tracking-[-0.02em] tabular-nums ${size} ${
+          valueColor ? '' : accent ? 'text-gold' : 'text-primary'
+        }`}
+        style={valueColor ? { color: valueColor } : undefined}
+      >
+        {dot && (
+          <span
+            aria-hidden
+            className="mr-2 inline-block h-2.5 w-2.5 shrink-0 rounded-full align-[0.1em]"
+            style={{ background: dot }}
+          />
+        )}
+        {value}
+      </p>
+      {sub && (
+        <p className="mt-1.5 text-micro leading-snug text-muted" title={sub}>
+          {sub}
+        </p>
+      )}
+    </div>
   );
 }

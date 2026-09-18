@@ -12,8 +12,13 @@ import {
   fetchStreamConfig,
   fetchStreamMatrix,
   lineageLines,
-  STREAM_FALLBACK_COLORS,
 } from '@/lib/streams/shared';
+import {
+  groupSeriesTopN,
+  tooltipStyle,
+  useChartTheme,
+} from '@/components/charts/chart-kit';
+import { seriesColor } from '@/lib/series-palette';
 
 export function StreamsView() {
   const searchParams = useSearchParams();
@@ -30,6 +35,7 @@ export function StreamsView() {
   const [customEnd, setCustomEnd] = useState('');
   const [matrix, setMatrix] = useState<StreamMatrix | null>(null);
   const [loading, setLoading] = useState(true);
+  const theme = useChartTheme();
   const supabase = createClient();
 
   useEffect(() => {
@@ -78,7 +84,7 @@ export function StreamsView() {
     [config]
   );
   const activeStream: StreamDef | undefined = tabs.find((s) => s.slug === active);
-  const columns = matrix?.columns ?? [];
+  const columns = useMemo(() => matrix?.columns ?? [], [matrix]);
 
   const filteredData = filterMonthsByRange(
     (matrix?.rows ?? []) as Array<{ month: string }>,
@@ -116,6 +122,18 @@ export function StreamsView() {
   }, [config, activeStream]);
 
   const stacked = columns.length > 3;
+
+  // Palette by each column's STABLE position, then folded to six plus a neutral
+  // "Other" so the chart never cycles hues. The table below keeps every column,
+  // so no detail is lost by grouping here.
+  const painted = useMemo(
+    () => columns.map((c, i) => ({ slug: c.slug, name: c.label, color: seriesColor(i, theme.light) })),
+    [columns, theme.light]
+  );
+  const grouped = useMemo(
+    () => groupSeriesTopN(chartData as Array<Record<string, unknown>>, painted, 6),
+    [chartData, painted]
+  );
 
   if (!config) {
     return <div className="h-64 animate-pulse rounded-xl bg-elevated" />;
@@ -206,21 +224,18 @@ export function StreamsView() {
               <p className="flex h-full items-center justify-center text-muted text-body">No data</p>
             ) : (
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#1e2535" />
-                  <XAxis dataKey="month" stroke="#8892a4" fontSize={12} />
-                  <YAxis stroke="#8892a4" fontSize={12} tickFormatter={(v) => `${(v / 1e6).toFixed(0)}M`} />
-                  <Tooltip
-                    formatter={(v: number) => formatMMK(v)}
-                    contentStyle={{ background: '#161b24', border: '1px solid #1e2535', borderRadius: 8 }}
-                  />
-                  <Legend />
-                  {columns.map((c, i) => (
+                <BarChart data={grouped.rows} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={theme.grid} vertical={false} />
+                  <XAxis dataKey="month" stroke={theme.axis} fontSize={12} tickLine={false} axisLine={false} />
+                  <YAxis stroke={theme.axis} fontSize={12} tickLine={false} axisLine={false} width={56} tickFormatter={(v) => `${(v / 1e6).toFixed(0)}M`} />
+                  <Tooltip formatter={(v: number) => formatMMK(v)} contentStyle={tooltipStyle(theme)} labelStyle={{ color: theme.tooltip.text, fontWeight: 600 }} itemStyle={{ color: theme.tooltip.text }} />
+                  <Legend wrapperStyle={{ fontSize: 12 }} />
+                  {grouped.series.map((c) => (
                     <Bar isAnimationActive={false}
                       key={c.slug}
                       dataKey={c.slug}
-                      name={c.label}
-                      fill={STREAM_FALLBACK_COLORS[i % STREAM_FALLBACK_COLORS.length]}
+                      name={c.name}
+                      fill={c.color}
                       stackId={stacked ? 'stack' : undefined}
                     />
                   ))}
@@ -233,30 +248,30 @@ export function StreamsView() {
             <table className="min-w-[900px] w-full text-left text-body">
               <thead>
                 <tr className="border-b border-border">
-                  <th className="p-3 font-medium text-secondary">Month</th>
+                  <th className="whitespace-nowrap p-3 text-left font-medium text-secondary">Month</th>
                   {columns.map((c) => (
-                    <th key={c.slug} className="p-3 font-medium text-secondary">
+                    <th key={c.slug} className="whitespace-nowrap p-3 text-right font-medium text-secondary">
                       {c.label}
                     </th>
                   ))}
-                  <th className="p-3 font-medium text-secondary">Total</th>
+                  <th className="whitespace-nowrap p-3 text-right font-medium text-secondary">Total</th>
                 </tr>
               </thead>
               <tbody>
                 {filteredData.map((row, i) => (
                   <tr key={i} className="border-b border-border last:border-0">
-                    <td className="p-3 text-primary">
+                    <td className="whitespace-nowrap p-3 text-primary">
                       {new Date((row.month as string) || '').toLocaleDateString('en-US', {
                         month: 'short',
                         year: 'numeric',
                       })}
                     </td>
                     {columns.map((c) => (
-                      <td key={c.slug} className="p-3 text-primary">
+                      <td key={c.slug} className="whitespace-nowrap p-3 text-right tabular-nums text-primary">
                         {formatMMK(row[c.slug] as number)}
                       </td>
                     ))}
-                    <td className="p-3 font-medium text-gold">{formatMMK(row.total as number)}</td>
+                    <td className="whitespace-nowrap p-3 text-right font-medium tabular-nums text-gold">{formatMMK(row.total as number)}</td>
                   </tr>
                 ))}
               </tbody>

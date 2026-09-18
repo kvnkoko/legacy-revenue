@@ -10,9 +10,11 @@ import {
   formatCompact,
   groupSeriesTopN,
   groupTopN,
+  StatTile,
   tooltipStyle,
   useChartTheme,
 } from '@/components/charts/chart-kit';
+import { seriesColor, withSeriesColors } from '@/lib/series-palette';
 import { Explain } from '@/components/charts/plain-language';
 import { plainChange, plainMoney } from '@/lib/plain-language';
 
@@ -21,7 +23,7 @@ type SummaryStream = { slug: string; name: string; color: string };
 
 export function AnalyticsCharts({
   summary,
-  streams,
+  streams: rawStreams,
   ringtune,
   mpt,
   atom,
@@ -33,6 +35,9 @@ export function AnalyticsCharts({
   atom: Row[];
 }) {
   const theme = useChartTheme();
+  // One repaint with the validated palette; colour follows the stream's stable
+  // position, never its rank, so filtering never recolours the survivors.
+  const streams = useMemo(() => withSeriesColors(rawStreams, theme.light), [rawStreams, theme.light]);
   const [range, setRange] = useState<TimeRangeKey>('12M');
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
@@ -353,11 +358,11 @@ export function AnalyticsCharts({
             </div>
           )}
         </div>
-        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-          <StatTile label="Our best month so far" value={formatCompact(milestones.best.value)} sub={milestones.best.month ? format(parseISO(String(milestones.best.month)), 'MMMM yyyy') : '—'} accent />
-          <StatTile label="A normal month" value={formatCompact(milestones.avg)} sub="average of every month" />
-          <StatTile label="Everything we have earned" value={formatCompact(milestones.allTimeTotal)} sub={`over ${summary.length} months`} />
-          <StatTile label="Our lowest month" value={formatCompact(milestones.worst.value)} sub={milestones.worst.month ? format(parseISO(String(milestones.worst.month)), 'MMMM yyyy') : '—'} />
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <StatTile accent label="Our best month so far" magnitude={milestones.best.value} value={formatMMK(milestones.best.value)} sub={milestones.best.month ? format(parseISO(String(milestones.best.month)), 'MMMM yyyy') : '—'} />
+          <StatTile label="A normal month" magnitude={milestones.avg} value={formatMMK(milestones.avg)} sub="average of every month" />
+          <StatTile label="Everything we have earned" magnitude={milestones.allTimeTotal} value={formatMMK(milestones.allTimeTotal)} sub={`over ${summary.length} months`} />
+          <StatTile label="Our lowest month" magnitude={milestones.worst.value} value={formatMMK(milestones.worst.value)} sub={milestones.worst.month ? format(parseISO(String(milestones.worst.month)), 'MMMM yyyy') : '—'} />
         </div>
       </div>
 
@@ -370,8 +375,8 @@ export function AnalyticsCharts({
               <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                 <defs>
                   <linearGradient id="goldFade" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#d4af37" stopOpacity={0.45} />
-                    <stop offset="100%" stopColor="#d4af37" stopOpacity={0.04} />
+                    <stop offset="0%" stopColor="rgb(var(--color-gold))" stopOpacity={0.45} />
+                    <stop offset="100%" stopColor="rgb(var(--color-gold))" stopOpacity={0.04} />
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke={theme.grid} vertical={false} />
@@ -379,9 +384,9 @@ export function AnalyticsCharts({
                 <YAxis {...axisProps} tickFormatter={(v) => formatCompact(v)} width={52} />
                 <Tooltip {...tt} formatter={(v: number, name: string) => [formatMMK(v), name === 'rolling3' ? '3M average' : 'Total']} />
                 <ReferenceLine y={periodAvg} stroke={theme.axis} strokeDasharray="2 6" strokeOpacity={0.7} />
-                <Area isAnimationActive={false} type="monotone" dataKey="total" name="total" stroke="#d4af37" strokeWidth={2.5} fill="url(#goldFade)" />
+                <Area isAnimationActive={false} type="monotone" dataKey="total" name="total" stroke="rgb(var(--color-gold))" strokeWidth={2.5} fill="url(#goldFade)" />
                 <Line isAnimationActive={false} type="monotone" dataKey="rolling3" stroke={theme.axis} strokeDasharray="5 4" strokeWidth={2} dot={false} />
-                {chartData.length > 18 && <Brush dataKey="monthLabel" height={16} stroke="#d4af37" travellerWidth={8} fill="transparent" />}
+                {chartData.length > 18 && <Brush dataKey="monthLabel" height={16} stroke="rgb(var(--color-gold))" travellerWidth={8} fill="transparent" />}
               </AreaChart>
             </ResponsiveContainer>
           </div>
@@ -402,7 +407,7 @@ export function AnalyticsCharts({
                 <XAxis dataKey="monthLabel" {...axisProps} />
                 <YAxis {...axisProps} tickFormatter={(v) => formatCompact(v)} width={52} />
                 <Tooltip {...tt} formatter={(v: number) => formatMMK(v)} />
-                <Line isAnimationActive={false} type="monotone" dataKey="cumulative" stroke="#d4af37" strokeWidth={2.5} dot={false} />
+                <Line isAnimationActive={false} type="monotone" dataKey="cumulative" stroke="rgb(var(--color-gold))" strokeWidth={2.5} dot={false} />
                 <Line isAnimationActive={false} type="monotone" dataKey="projected" stroke={theme.axis} strokeDasharray="5 4" strokeWidth={2} dot={false} />
               </LineChart>
             </ResponsiveContainer>
@@ -644,7 +649,7 @@ export function AnalyticsCharts({
                     <Tooltip {...tt} formatter={(v: number) => formatMMK(v)} />
                     <Legend />
                     <Bar isAnimationActive={false} dataKey="previous" name="Previous year" fill={theme.grid} maxBarSize={22} radius={[3, 3, 0, 0]} />
-                    <Bar isAnimationActive={false} dataKey="current" name="Current year" fill="#d4af37" maxBarSize={22} radius={[3, 3, 0, 0]} />
+                    <Bar isAnimationActive={false} dataKey="current" name="Current year" fill="rgb(var(--color-gold))" maxBarSize={22} radius={[3, 3, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -781,20 +786,20 @@ export function AnalyticsCharts({
         />
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
           <ChartCard title="Which mobile operator pays us the most for Ringtune?" subtitle="Each colour is one operator, added together each month">
-            <MiniStack data={telecom} keys={[['MPT', '#d4af37'], ['Atom', '#3b82f6'], ['Ooredoo', '#8b5cf6']]} theme={theme} axisProps={axisProps} tt={tt} />
+            <MiniStack data={telecom} keys={[['MPT', seriesColor(0, theme.light)], ['Atom', seriesColor(1, theme.light)], ['Ooredoo', seriesColor(2, theme.light)]]} theme={theme} axisProps={axisProps} tt={tt} />
           </ChartCard>
           <ChartCard title="How much comes from mobile operators, and how much from everywhere else?" subtitle="Gold is money from mobile operators, blue is all our other streams">
             <MiniStack data={filtered.map((row) => ({
               monthLabel: row.month ? format(parseISO(String(row.month)), 'MMM yy') : '',
               Telecom: Number(row.ringtune ?? 0) + Number(row.eauc ?? 0) + Number(row.combo ?? 0),
               Direct: Number(row.total ?? 0) - (Number(row.ringtune ?? 0) + Number(row.eauc ?? 0) + Number(row.combo ?? 0)),
-            }))} keys={[['Telecom', '#d4af37'], ['Direct', '#3b82f6']]} theme={theme} axisProps={axisProps} tt={tt} />
+            }))} keys={[['Telecom', seriesColor(0, theme.light)], ['Direct', seriesColor(1, theme.light)]]} theme={theme} axisProps={axisProps} tt={tt} />
           </ChartCard>
           <ChartCard title="Inside MPT: which product earns the most?" subtitle="MPT's money split into Ringtune, EAUC and Combo">
-            <MiniStack data={mptContribution} keys={[['Ringtune', '#d4af37'], ['EAUC', '#3b82f6'], ['Combo', '#8b5cf6']]} theme={theme} axisProps={axisProps} tt={tt} />
+            <MiniStack data={mptContribution} keys={[['Ringtune', seriesColor(0, theme.light)], ['EAUC', seriesColor(1, theme.light)], ['Combo', seriesColor(2, theme.light)]]} theme={theme} axisProps={axisProps} tt={tt} />
           </ChartCard>
           <ChartCard title="Inside Atom: which product earns the most?" subtitle="Atom's money split into Ringtune, EAUC and Combo">
-            <MiniStack data={atomContribution} keys={[['Ringtune', '#d4af37'], ['EAUC', '#3b82f6'], ['Combo', '#8b5cf6']]} theme={theme} axisProps={axisProps} tt={tt} />
+            <MiniStack data={atomContribution} keys={[['Ringtune', seriesColor(0, theme.light)], ['EAUC', seriesColor(1, theme.light)], ['Combo', seriesColor(2, theme.light)]]} theme={theme} axisProps={axisProps} tt={tt} />
           </ChartCard>
         </div>
       </div>
@@ -812,16 +817,6 @@ function SectionHeader({ title, subtitle }: { title: string; subtitle: string })
     <div className="flex items-baseline gap-3 border-b border-border pb-2">
       <h2 className="text-title font-bold tracking-tight text-primary">{title}</h2>
       <p className="text-caption text-secondary">{subtitle}</p>
-    </div>
-  );
-}
-
-function StatTile({ label, value, sub, accent = false }: { label: string; value: string; sub?: string; accent?: boolean }) {
-  return (
-    <div className={`rounded-2xl border p-5 ${accent ? 'border-gold/40 bg-gold/5 shadow-glow-gold' : 'border-border bg-card'}`}>
-      <p className="text-micro uppercase tracking-wide text-secondary">{label}</p>
-      <p className={`mt-1 text-display font-bold tabular-nums ${accent ? 'text-gold' : 'text-primary'}`}>{value}</p>
-      {sub && <p className="text-micro text-muted">{sub}</p>}
     </div>
   );
 }

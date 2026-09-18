@@ -2,13 +2,15 @@
 
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 import { useCurrency } from '@/contexts/CurrencyContext';
-import { groupTopN } from '@/components/charts/chart-kit';
+import { groupTopN, useChartTheme } from '@/components/charts/chart-kit';
+import { withSeriesColors } from '@/lib/series-palette';
 
 type Row = Record<string, unknown>;
 type DonutStream = { slug: string; name: string; color: string };
 
 export function StreamDonutChart({ data, streams }: { data: Row | null; streams: DonutStream[] }) {
   const { formatCurrency } = useCurrency();
+  const theme = useChartTheme();
   if (!data) {
     return (
       <div className="flex h-64 items-center justify-center text-secondary">
@@ -19,7 +21,7 @@ export function StreamDonutChart({ data, streams }: { data: Row | null; streams:
 
   // Top 6 streams by value + one neutral "Other" — readable instead of 14 slices
   // with near-identical colors and a cramped legend.
-  const slices = groupTopN(streams, (s) => Number(data[s.slug] ?? 0), 6);
+  const slices = groupTopN(withSeriesColors(streams, theme.light), (s) => Number(data[s.slug] ?? 0), 6);
   const total = slices.reduce((sum, s) => sum + s.value, 0);
 
   if (!slices.length) {

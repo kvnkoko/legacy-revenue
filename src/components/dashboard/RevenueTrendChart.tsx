@@ -22,6 +22,7 @@ import {
   tooltipStyle,
   useChartTheme,
 } from '@/components/charts/chart-kit';
+import { withSeriesColors } from '@/lib/series-palette';
 
 type Row = { month: string; total?: number } & Record<string, unknown>;
 export type TrendStream = { slug: string; name: string; color: string };
@@ -41,9 +42,12 @@ export function RevenueTrendChart({ data, streams }: { data: Row[]; streams: Tre
 
   // Stack only the top streams + a neutral "Other" so the bands stay readable
   // no matter how many streams the team configures.
+  // Repaint with the validated palette BEFORE grouping, so each stream's colour
+  // comes from its stable position in the list and not from how much it earned.
+  const painted = useMemo(() => withSeriesColors(streams, theme.light), [streams, theme.light]);
   const { series, rows } = useMemo(
-    () => groupSeriesTopN(filtered as Array<Record<string, unknown>>, streams, 6),
-    [filtered, streams]
+    () => groupSeriesTopN(filtered as Array<Record<string, unknown>>, painted, 6),
+    [filtered, painted]
   );
 
   const totals = filtered.map((d) => Number(d.total ?? 0));

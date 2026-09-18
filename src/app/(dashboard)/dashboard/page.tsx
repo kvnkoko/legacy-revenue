@@ -6,9 +6,10 @@ import { RecentActivity } from '@/components/dashboard/RecentActivity';
 import { QuickActions } from '@/components/dashboard/QuickActions';
 import { RevenueHistoryTable } from '@/components/history/RevenueHistoryTable';
 import { RevenueArchitectureDiagram } from '@/components/dashboard/RevenueArchitectureDiagram';
-import { ChartCard } from '@/components/charts/chart-kit';
+import { ChartCard, StatTile } from '@/components/charts/chart-kit';
+import { seriesColor } from '@/lib/series-palette';
 import { Explain } from '@/components/charts/plain-language';
-import { plainChange } from '@/lib/plain-language';
+import { plainChange, sentenceCase } from '@/lib/plain-language';
 
 export const dynamic = 'force-dynamic';
 
@@ -84,6 +85,9 @@ export default async function DashboardPage({
       }, null)
     : null;
   const bestStreamShare = bestStream && totalRevenue ? (bestStream.value / totalRevenue) * 100 : null;
+  const bestStreamIndex = bestStream ? matrix.streams.findIndex((s) => s.name === bestStream.name) : -1;
+  // Server-rendered, so resolve the dark step; the client charts pick per theme.
+  const bestStreamColor = bestStreamIndex >= 0 ? seriesColor(bestStreamIndex, false) : undefined;
 
   /*
    * Is the newest recorded month probably still being filled in?
@@ -157,55 +161,48 @@ export default async function DashboardPage({
       )}
 
       {/* ============ Headline numbers, in plain language ============ */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="rounded-2xl border border-gold/40 bg-gold/5 p-5 shadow-glow-gold">
-          <p className="text-micro uppercase tracking-wide text-secondary">Money earned</p>
-          <p className="mt-1 text-display font-bold tabular-nums text-gold">
-            <FormattedCurrency value={totalRevenue} />
-          </p>
-          <p className="mt-0.5 text-micro text-muted">
-            in {latestRecordedMonth ? latestLabel : 'no month yet'}
-            {looksIncomplete ? ' · still being filled in' : ''}
-          </p>
-        </div>
-
-        <div className="rounded-2xl border border-border bg-card p-5">
-          <p className="text-micro uppercase tracking-wide text-secondary">Compared with last month</p>
-          <p
-            className={`mt-1 text-display font-bold capitalize ${
-              looksIncomplete ? 'text-secondary' : momGrowth != null && momGrowth < 0 ? 'text-danger' : 'text-gold'
-            }`}
-          >
-            {momGrowth != null ? plainChange(momGrowth) : '—'}
-          </p>
-          <p className="mt-0.5 text-micro text-muted">
-            {looksIncomplete
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <StatTile
+          accent
+          label="Money earned"
+          magnitude={totalRevenue}
+          value={<FormattedCurrency value={totalRevenue} />}
+          sub={`in ${latestRecordedMonth ? latestLabel : 'no month yet'}${
+            looksIncomplete ? ' · still being filled in' : ''
+          }`}
+        />
+        <StatTile
+          label="Compared with last month"
+          value={momGrowth != null ? sentenceCase(plainChange(momGrowth)) : '—'}
+          valueColor={
+            looksIncomplete
+              ? 'rgb(var(--color-secondary))'
+              : momGrowth != null && momGrowth < -1
+                ? 'rgb(var(--color-danger))'
+                : undefined
+          }
+          sub={
+            looksIncomplete
               ? 'not reliable until the month is complete'
-              : `${latestLabel} against ${prevLabel}`}
-          </p>
-        </div>
-
-        <div className="rounded-2xl border border-border bg-card p-5">
-          <p className="text-micro uppercase tracking-wide text-secondary">
-            Earned in {latestRecordedYear ?? 'this year'} so far
-          </p>
-          <p className="mt-1 text-display font-bold tabular-nums text-primary">
-            <FormattedCurrency value={ytdTotal} />
-          </p>
-          <p className="mt-0.5 text-micro text-muted">every month of {latestRecordedYear ?? '—'} added together</p>
-        </div>
-
-        <div className="rounded-2xl border border-border bg-card p-5">
-          <p className="text-micro uppercase tracking-wide text-secondary">Biggest earner</p>
-          <p className="mt-1 text-title font-bold" style={{ color: bestStream?.color }}>
-            {bestStream?.name ?? '—'}
-          </p>
-          <p className="mt-0.5 text-micro text-muted">
-            {bestStreamShare != null
+              : `${latestLabel} against ${prevLabel}`
+          }
+        />
+        <StatTile
+          label={`Earned in ${latestRecordedYear ?? 'this year'} so far`}
+          magnitude={ytdTotal}
+          value={<FormattedCurrency value={ytdTotal} />}
+          sub={`every month of ${latestRecordedYear ?? '—'} added together`}
+        />
+        <StatTile
+          label="Biggest earner"
+          value={bestStream?.name ?? '—'}
+          dot={bestStreamColor}
+          sub={
+            bestStreamShare != null
               ? `${bestStreamShare.toFixed(0)}% of the money in ${latestLabel}`
-              : 'no data yet'}
-          </p>
-        </div>
+              : 'no data yet'
+          }
+        />
       </div>
 
       <QuickActions />

@@ -27,3 +27,8 @@ export function plainChange(pct: number): string {
   if (rounded < 2) return 'stayed about the same';
   return `${pct > 0 ? 'grew' : 'fell'} by ${rounded}%`;
 }
+
+/** Sentence case: only the first letter is capitalised ("Fell by 62%"). */
+export function sentenceCase(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
