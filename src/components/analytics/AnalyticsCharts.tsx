@@ -94,6 +94,27 @@ export function AnalyticsCharts({
     return { allTimeTotal, avg, best, worst };
   }, [settled]);
 
+  /*
+   * The months every card in "Where does our money come from?" refers to.
+   *
+   * These cards used to disagree with each other: the ranked bars covered the
+   * selected period while the dependence card quietly used the single newest
+   * month, so YouTube appeared as 36.6% and 31% on the same screen with nothing
+   * saying why. Both now use this one list, and each card states the months.
+   */
+  const periodRows = useMemo(() => {
+    const keep = new Set(settled.map((r) => String(r.month)));
+    return filtered.filter((r) => keep.has(String(r.month)));
+  }, [filtered, settled]);
+
+  const periodLabel = useMemo(() => {
+    if (!periodRows.length) return 'no complete months';
+    const first = String(periodRows[0].month);
+    const last = String(periodRows[periodRows.length - 1].month);
+    const fmt = (m: string) => format(parseISO(m), 'MMM yyyy');
+    return first === last ? fmt(first) : `${fmt(first)} – ${fmt(last)}`;
+  }, [periodRows]);
+
   const periodAvg = useMemo(() => {
     const totals = filtered.map((r) => Number(r.total ?? 0));
     return totals.length ? totals.reduce((a, b) => a + b, 0) / totals.length : 0;
@@ -103,12 +124,12 @@ export function AnalyticsCharts({
   const composition = useMemo(() => {
     const slices = groupTopN(
       streams,
-      (s) => filtered.reduce((sum, r) => sum + Number(r[s.slug] ?? 0), 0),
+      (s) => periodRows.reduce((sum, r) => sum + Number(r[s.slug] ?? 0), 0),
       8
     );
     const max = slices.length ? slices[0].value : 1;
     return slices.map((s) => ({ ...s, widthPct: (s.value / max) * 100 }));
-  }, [filtered, streams]);
+  }, [periodRows, streams]);
 
   const telecom = useMemo(() => ringtune.map((r) => ({
     monthLabel: r.month ? format(parseISO(String(r.month)), 'MMM yy') : '',
@@ -218,11 +239,31 @@ export function AnalyticsCharts({
       }
       return { score, top, topShare: (Number(row[top.slug] ?? 0) / total) * 100 };
     };
-    if (!settled.length) return null;
-    const latest = calc(settled[settled.length - 1]);
-    const prior = settled.length > 3 ? calc(settled[settled.length - 4]) : null;
-    return latest ? { ...latest, scoreDelta: prior ? latest.score - prior.score : null } : null;
-  }, [settled, streams]);
+    if (!periodRows.length) return null;
+    /*
+     * Collapse the period into one row so this card and the ranked bars are
+     * computed from exactly the same money.
+     *
+     * The denominator is the SUM OF THE STREAM COLUMNS, not the summary
+     * "total" column. Those two are not the same number here, and dividing by
+     * different totals is what made the same stream read 36.6% on the bars and
+     * 31% on this card. Using the figure the bars use keeps both cards honest
+     * against each other and keeps the shares adding up to 100%.
+     */
+    const perStream = streams.map((st) => ({
+      stream: st,
+      value: periodRows.reduce((sum, r) => sum + Number(r[st.slug] ?? 0), 0),
+    }));
+    const streamSum = perStream.reduce((sum, x) => sum + x.value, 0);
+    if (!streamSum) return null;
+    const periodTotal: Row = {
+      total: streamSum,
+      ...Object.fromEntries(perStream.map((x) => [x.stream.slug, x.value])),
+    };
+    const monthlyAverage = streamSum / periodRows.length;
+    const current = calc(periodTotal);
+    return current ? { ...current, monthlyAverage, months: periodRows.length } : null;
+  }, [periodRows, streams]);
 
   // Which streams are heating up or cooling down (3M avg vs prior 3M).
   const momentum = useMemo(() => {
@@ -336,17 +377,36 @@ export function AnalyticsCharts({
     return format(d, 'MMM yyyy');
   })();
 
-  // Values used by the plain-English explanations under each chart.
-  const latestTotal = Number(summary[summary.length - 1]?.total ?? 0);
-  const prevTotal = Number(summary[summary.length - 2]?.total ?? 0);
-  const latestVsPrevPct = prevTotal ? ((latestTotal - prevTotal) / prevTotal) * 100 : 0;
-  const latestVsAvgPct = periodAvg ? ((latestTotal - periodAvg) / periodAvg) * 100 : 0;
-  const lastMonthLabel = summary[summary.length - 1]?.month
-    ? format(parseISO(String(summary[summary.length - 1].month)), 'MMMM yyyy')
-    : 'the latest month';
-  // Money we can expect over the next 3 months if recent months repeat.
+  /*
+   * Values used by the plain-English explanations under each chart, all taken
+   * from the newest COMPLETE month. Using the newest RECORDED month described a
+   * part-filled month as though it were finished, and the "compared with the
+   * month before" line was the same unreliable comparison we removed from the
+   * Overview page: the month before is usually still filling in too.
+   */
+  const latestSettled = settled.length ? settled[settled.length - 1] : null;
+  const latestTotal = Number(latestSettled?.total ?? 0);
+  const settledAvg = settled.length
+    ? settled.reduce((a, r) => a + Number(r.total ?? 0), 0) / settled.length
+    : 0;
+  const latestVsAvgPct = settledAvg ? ((latestTotal - settledAvg) / settledAvg) * 100 : 0;
+  const lastMonthLabel = latestSettled?.month
+    ? format(parseISO(String(latestSettled.month)), 'MMMM yyyy')
+    : 'the latest complete month';
+  // Same month a year earlier: a like-for-like comparison that survives late
+  // distributor reporting, unlike comparing with the month before.
+  const sameMonthLastYear = (() => {
+    if (!latestSettled?.month) return null;
+    const d = new Date(String(latestSettled.month));
+    d.setFullYear(d.getFullYear() - 1);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
+    const row = settled.find((r) => String(r.month) === key);
+    const prior = Number(row?.total ?? 0);
+    return prior > 0 ? ((latestTotal - prior) / prior) * 100 : null;
+  })();
+  // Money we can expect over the next 3 months if recent complete months repeat.
   const next3Expected = (() => {
-    const last3 = summary.slice(-3).map((r) => Number(r.total ?? 0));
+    const last3 = settled.slice(-3).map((r) => Number(r.total ?? 0));
     if (!last3.length) return 0;
     return (last3.reduce((a, b) => a + b, 0) / last3.length) * 3;
   })();
@@ -429,11 +489,15 @@ export function AnalyticsCharts({
           </div>
           <Explain
             shows="The gold shape is how much we earned in each month. The dashed line is the average of the last 3 months — it hides one-off jumps so you can see the real direction. The flat straight line is the average for the whole period shown."
-            means={`${lastMonthLabel} was ${plainMoney(latestTotal)}. That is ${
+            means={`${lastMonthLabel}, our newest month with complete figures, was ${plainMoney(latestTotal)} MMK. That is ${
               Math.abs(Math.round(latestVsAvgPct)) < 2
                 ? 'about the same as'
                 : `${Math.abs(Math.round(latestVsAvgPct))}% ${latestVsAvgPct > 0 ? 'above' : 'below'}`
-            } a normal month for this period. Compared with the month before, it ${plainChange(latestVsPrevPct)}.`}
+            } a normal month. ${
+              sameMonthLastYear != null
+                ? `Against the same month a year earlier it ${plainChange(sameMonthLastYear)}.`
+                : 'We cannot compare it with a year earlier yet.'
+            }`}
           />
         </ChartCard>
         <ChartCard title="How much have we earned in total, and what comes next?" subtitle="The line only goes up, because it adds every month together">
@@ -458,9 +522,30 @@ export function AnalyticsCharts({
 
       {/* ============ Section: Where the money comes from ============ */}
       <div className="space-y-5">
-        <SectionHeader title="Where does our money come from?" subtitle="Which streams pay us the most, and how much we depend on them" />
+        <SectionHeader
+          title="Where does our money come from?"
+          subtitle={`Both cards below cover ${periodLabel} — ${periodRows.length} ${periodRows.length === 1 ? 'month' : 'months'} with complete figures`}
+        />
+        <div className="rounded-xl border border-border bg-card p-3.5">
+          <p className="mb-2 text-caption text-secondary">Change the months these two cards use:</p>
+          <div className="flex flex-wrap items-center gap-3">
+            <TimeRangeSelector value={range} onChange={setRange} />
+            {range === 'CUSTOM' && (
+              <div className="flex flex-wrap items-end gap-2">
+                <label className="flex flex-col gap-1">
+                  <span className="text-micro uppercase tracking-[0.08em] text-secondary">From month</span>
+                  <input type="month" value={customStart} onChange={(e) => setCustomStart(e.target.value)} className="rounded-lg border border-border bg-elevated px-2.5 py-1.5 text-caption text-primary" />
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className="text-micro uppercase tracking-[0.08em] text-secondary">To month</span>
+                  <input type="month" value={customEnd} onChange={(e) => setCustomEnd(e.target.value)} className="rounded-lg border border-border bg-elevated px-2.5 py-1.5 text-caption text-primary" />
+                </label>
+              </div>
+            )}
+          </div>
+        </div>
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-5">
-          <ChartCard title="Which streams bring us the most money?" subtitle="Longest bar at the top earns the most" className="lg:col-span-3">
+          <ChartCard title="Which streams bring us the most money?" subtitle={`Longest bar earns the most · ${periodLabel}`} className="lg:col-span-3">
             <ul className="space-y-3">
               {composition.map((s) => (
                 <li key={s.slug}>
@@ -481,10 +566,10 @@ export function AnalyticsCharts({
               ))}
             </ul>
             <Explain
-              shows="Each bar is one revenue stream. The percentage is that stream's share of all the money we earned in the period you selected above."
+              shows={`Each bar is one revenue stream. The percentage is that stream's share of all the money we earned in ${periodLabel}.`}
               means={
                 composition.length
-                  ? `${composition[0].name} is our biggest earner at ${composition[0].share.toFixed(0)}% of all money. The top ${Math.min(3, composition.length)} streams together bring ${composition
+                  ? `${composition[0].name} is our biggest earner at ${composition[0].share.toFixed(1)}% of the money in ${periodLabel}. The top ${Math.min(3, composition.length)} streams together bring ${composition
                       .slice(0, 3)
                       .reduce((a, b) => a + b.share, 0)
                       .toFixed(0)}%. Put your team's effort and new deals where the money already is, and watch the small streams to see which one could grow next.`
@@ -492,17 +577,17 @@ export function AnalyticsCharts({
               }
             />
           </ChartCard>
-          <ChartCard title="Are we depending too much on one stream?" subtitle="A safer business earns from many streams, not just one" className="lg:col-span-2">
+          <ChartCard title="Are we depending too much on one stream?" subtitle={`A safer business earns from many streams · ${periodLabel}`} className="lg:col-span-2">
             {concentration ? (
               <div className="space-y-5">
                 <div>
-                  <p className="text-caption text-secondary">Our biggest earner last month</p>
+                  <p className="text-caption text-secondary">Biggest earner in {periodLabel}</p>
                   <p className="mt-0.5 text-title font-bold" style={{ color: concentration.top.color }}>
                     {concentration.top.name}
                   </p>
                   <p className="text-body text-primary">
-                    <span className="text-display font-bold tabular-nums">{concentration.topShare.toFixed(0)}%</span>
-                    <span className="text-caption text-secondary"> of all our money</span>
+                    <span className="text-display font-bold tabular-nums">{concentration.topShare.toFixed(1)}%</span>
+                    <span className="text-caption text-secondary"> of the money in this period</span>
                   </p>
                 </div>
                 <div>
@@ -510,11 +595,6 @@ export function AnalyticsCharts({
                     <p className="text-caption text-secondary">How spread out our money is</p>
                     <p className="tabular-nums text-body font-bold text-primary">
                       {concentration.score.toFixed(0)}<span className="text-micro text-muted">/100</span>
-                      {concentration.scoreDelta != null && (
-                        <span className={`ml-2 text-micro ${concentration.scoreDelta >= 0 ? 'text-gold' : 'text-red-400'}`}>
-                          {concentration.scoreDelta >= 0 ? '▲' : '▼'} {Math.abs(concentration.scoreDelta).toFixed(1)}
-                        </span>
-                      )}
                     </p>
                   </div>
                   <div className="mt-2 h-2 overflow-hidden rounded-full bg-elevated">
@@ -531,11 +611,11 @@ export function AnalyticsCharts({
             )}
             {concentration && (
               <Explain
-                shows={`${concentration.top.name} paid us the most last month — ${concentration.topShare.toFixed(0)}% of everything we earned.`}
+                shows={`Across ${periodLabel}, ${concentration.top.name} paid us ${concentration.topShare.toFixed(1)}% of all the money we earned — the same figure as the top bar on the left.`}
                 means={
                   concentration.topShare > 60
-                    ? `This is a risk. If ${concentration.top.name} stopped paying, we would lose about ${plainMoney((concentration.topShare / 100) * latestTotal)} every month. It is worth growing a second stream so the business does not depend on one partner.`
-                    : `This is fairly healthy. No single stream can take down the whole business. Losing ${concentration.top.name} would still cost us about ${plainMoney((concentration.topShare / 100) * latestTotal)} a month, so keep that relationship strong.`
+                    ? `This is a risk. If ${concentration.top.name} stopped paying, we would lose about ${plainMoney((concentration.topShare / 100) * concentration.monthlyAverage)} MMK in an average month. It is worth growing a second stream so the business does not depend on one partner.`
+                    : `This is fairly healthy. No single stream can take down the whole business. Losing ${concentration.top.name} would still cost us about ${plainMoney((concentration.topShare / 100) * concentration.monthlyAverage)} MMK in an average month, so keep that relationship strong.`
                 }
               />
             )}
