@@ -71,7 +71,10 @@ export async function updateSession(request: NextRequest) {
   // while still never granting data access.
   const can = (key: PermissionKey) => (effective ? Boolean(effective[key]) : true);
   const isAuthPage =
-    request.nextUrl.pathname === '/login' || request.nextUrl.pathname === '/signup';
+    request.nextUrl.pathname === '/login' ||
+    request.nextUrl.pathname === '/signup' ||
+    // Network diagnostic: must be reachable by someone who cannot sign in.
+    request.nextUrl.pathname === '/connection-check';
   if (!user && !isAuthPage && request.nextUrl.pathname !== '/') {
     const url = request.nextUrl.clone();
     url.pathname = '/login';

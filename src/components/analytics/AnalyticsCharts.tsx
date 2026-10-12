@@ -15,6 +15,7 @@ import {
   useChartTheme,
 } from '@/components/charts/chart-kit';
 import { seriesColor, withSeriesColors } from '@/lib/series-palette';
+import { completeRows, incompleteTail, type MonthRow } from '@/lib/data-completeness';
 import { Explain } from '@/components/charts/plain-language';
 import { plainChange, plainMoney } from '@/lib/plain-language';
 
@@ -38,6 +39,27 @@ export function AnalyticsCharts({
   // One repaint with the validated palette; colour follows the stream's stable
   // position, never its rank, so filtering never recolours the survivors.
   const streams = useMemo(() => withSeriesColors(rawStreams, theme.light), [rawStreams, theme.light]);
+
+  /*
+   * Every statistic below is built from COMPLETE months only.
+   *
+   * Distributor reports arrive late, so the newest recorded months are usually
+   * part-filled. Left in, they quietly corrupted the figures: the part-filled
+   * month became "our lowest month ever", the biggest-change card compared a
+   * full month against a half-empty one, and the anomaly checker raised a
+   * "please check this" alert for data that was simply not entered yet.
+   *
+   * The month-by-month chart still shows everything, with a note, because
+   * seeing the unfinished tail is useful — it just must not drive the numbers.
+   */
+  const settled = useMemo(
+    () => completeRows(summary as MonthRow[], rawStreams) as Row[],
+    [summary, rawStreams]
+  );
+  const stillFilling = useMemo(
+    () => incompleteTail(summary as MonthRow[], rawStreams),
+    [summary, rawStreams]
+  );
   const [range, setRange] = useState<TimeRangeKey>('12M');
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
@@ -58,19 +80,19 @@ export function AnalyticsCharts({
   }, [filtered]);
 
   const milestones = useMemo(() => {
-    const totals = summary.map((r) => Number(r.total ?? 0));
+    const totals = settled.map((r) => Number(r.total ?? 0));
     const allTimeTotal = totals.reduce((acc, v) => acc + v, 0);
     const avg = totals.length ? allTimeTotal / totals.length : 0;
-    const best = summary.reduce<{ month: string | null; value: number }>(
+    const best = settled.reduce<{ month: string | null; value: number }>(
       (acc, r) => (Number(r.total ?? 0) > acc.value ? { month: String(r.month), value: Number(r.total ?? 0) } : acc),
       { month: null, value: 0 }
     );
-    const worst = summary.reduce<{ month: string | null; value: number }>(
+    const worst = settled.reduce<{ month: string | null; value: number }>(
       (acc, r) => (Number(r.total ?? 0) < acc.value ? { month: String(r.month), value: Number(r.total ?? 0) } : acc),
-      { month: summary[0]?.month ? String(summary[0].month) : null, value: Number(summary[0]?.total ?? 0) }
+      { month: settled[0]?.month ? String(settled[0].month) : null, value: Number(settled[0]?.total ?? 0) }
     );
     return { allTimeTotal, avg, best, worst };
-  }, [summary]);
+  }, [settled]);
 
   const periodAvg = useMemo(() => {
     const totals = filtered.map((r) => Number(r.total ?? 0));
@@ -110,7 +132,7 @@ export function AnalyticsCharts({
   })), [atom]);
 
   const cumulative = useMemo(() => {
-    const rows = [...summary].sort((a, b) => String(a.month).localeCompare(String(b.month)));
+    const rows = [...settled].sort((a, b) => String(a.month).localeCompare(String(b.month)));
     let run = 0;
     const base: Array<{ monthLabel: string; cumulative: number; projected?: number }> = rows.map((r) => {
       run += Number(r.total ?? 0);
@@ -123,10 +145,10 @@ export function AnalyticsCharts({
       base.push({ monthLabel: `+${i}M`, cumulative: projected, projected });
     }
     return base;
-  }, [summary]);
+  }, [settled]);
 
   const yoy = useMemo(() => {
-    const rows = [...summary].sort((a, b) => String(a.month).localeCompare(String(b.month)));
+    const rows = [...settled].sort((a, b) => String(a.month).localeCompare(String(b.month)));
     if (rows.length < 13) return [];
     return rows.slice(-12).map((r) => {
       const d = new Date(String(r.month));
@@ -139,11 +161,11 @@ export function AnalyticsCharts({
       const pct = previous ? ((current - previous) / previous) * 100 : 0;
       return { monthLabel: format(d, 'MMM'), current, previous, pct };
     });
-  }, [summary]);
+  }, [settled]);
 
   const lifecycle = useMemo(() => {
     return streams.map(({ slug: key, name }) => {
-      const values = summary.map((r) => Number(r[key] ?? 0));
+      const values = settled.map((r) => Number(r[key] ?? 0));
       const first = values.findIndex((v) => v > 0);
       const last3 = values.slice(-3).reduce((a, b) => a + b, 0);
       const prev3 = values.slice(-6, -3).reduce((a, b) => a + b, 0);
@@ -151,18 +173,18 @@ export function AnalyticsCharts({
       return {
         key,
         name,
-        firstMonth: first >= 0 ? String(summary[first]?.month ?? '—') : '—',
+        firstMonth: first >= 0 ? String(settled[first]?.month ?? '—') : '—',
         monthsActive: values.filter((v) => v > 0).length,
         allTimeTotal: values.reduce((a, b) => a + b, 0),
         trend,
       };
     });
-  }, [summary, streams]);
+  }, [settled, streams]);
 
   const momComparison = useMemo(() => {
-    if (summary.length < 2) return [];
-    const last = summary[summary.length - 1];
-    const prev = summary[summary.length - 2];
+    if (settled.length < 2) return [];
+    const last = settled[settled.length - 1];
+    const prev = settled[settled.length - 2];
     return streams
       .map((s) => {
         const current = Number(last[s.slug] ?? 0);
@@ -173,7 +195,7 @@ export function AnalyticsCharts({
       })
       .filter((s) => s.current > 0 || s.previous > 0)
       .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
-  }, [summary, streams]);
+  }, [settled, streams]);
 
   const topMovers = useMemo(
     () => [...momComparison].sort((a, b) => Math.abs(b.pct) - Math.abs(a.pct)).slice(0, 3),
@@ -196,18 +218,18 @@ export function AnalyticsCharts({
       }
       return { score, top, topShare: (Number(row[top.slug] ?? 0) / total) * 100 };
     };
-    if (!summary.length) return null;
-    const latest = calc(summary[summary.length - 1]);
-    const prior = summary.length > 3 ? calc(summary[summary.length - 4]) : null;
+    if (!settled.length) return null;
+    const latest = calc(settled[settled.length - 1]);
+    const prior = settled.length > 3 ? calc(settled[settled.length - 4]) : null;
     return latest ? { ...latest, scoreDelta: prior ? latest.score - prior.score : null } : null;
-  }, [summary, streams]);
+  }, [settled, streams]);
 
   // Which streams are heating up or cooling down (3M avg vs prior 3M).
   const momentum = useMemo(() => {
     const avg = (a: number[]) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0);
     return streams
       .map((s) => {
-        const vals = summary.map((r) => Number(r[s.slug] ?? 0));
+        const vals = settled.map((r) => Number(r[s.slug] ?? 0));
         const a3 = avg(vals.slice(-3));
         const p3 = avg(vals.slice(-6, -3));
         const pct = p3 ? ((a3 - p3) / p3) * 100 : a3 > 0 ? 100 : 0;
@@ -225,11 +247,11 @@ export function AnalyticsCharts({
       })
       .filter((m) => m.a3 > 0 || m.p3 > 0)
       .sort((a, b) => b.pct - a.pct);
-  }, [summary, streams]);
+  }, [settled, streams]);
 
   const quarterly = useMemo(() => {
     const byQ = new Map<string, Record<string, number | string | null>>();
-    for (const r of summary) {
+    for (const r of settled) {
       const d = new Date(String(r.month));
       const q = `${d.getFullYear()} Q${Math.floor(d.getMonth() / 3) + 1}`;
       if (!byQ.has(q)) {
@@ -250,7 +272,7 @@ export function AnalyticsCharts({
         ? ((Number(r.total) - Number(rows[i - 1].total)) / Number(rows[i - 1].total)) * 100
         : null,
     }));
-  }, [summary, streams]);
+  }, [settled, streams]);
 
   const quarterlyGrouped = useMemo(
     () => groupSeriesTopN(quarterly as Array<Record<string, unknown>>, streams, 6),
@@ -261,7 +283,7 @@ export function AnalyticsCharts({
   const recordsAnomalies = useMemo(() => {
     const records = streams
       .map((s) => {
-        const vals = summary
+        const vals = settled
           .map((r) => ({ month: String(r.month), v: Number(r[s.slug] ?? 0) }))
           .filter((x) => x.v > 0);
         if (!vals.length) return null;
@@ -273,7 +295,7 @@ export function AnalyticsCharts({
 
     const anomalies: Array<{ name: string; latest: number; mean: number; direction: 'above' | 'below' }> = [];
     for (const s of streams) {
-      const vals = summary.map((r) => Number(r[s.slug] ?? 0));
+      const vals = settled.map((r) => Number(r[s.slug] ?? 0));
       if (vals.length < 5) continue;
       const hist = vals.slice(0, -1).filter((v) => v > 0);
       if (hist.length < 4) continue;
@@ -285,12 +307,12 @@ export function AnalyticsCharts({
       }
     }
     return { records, anomalies };
-  }, [summary, streams]);
+  }, [settled, streams]);
 
   const seasonality = useMemo(() => {
-    if (summary.length < 12) return [];
+    if (settled.length < 12) return [];
     const byMonth = new Map<number, number[]>();
-    summary.forEach((r) => {
+    settled.forEach((r) => {
       const month = new Date(String(r.month)).getMonth() + 1;
       byMonth.set(month, [...(byMonth.get(month) ?? []), Number(r.total ?? 0)]);
     });
@@ -300,7 +322,7 @@ export function AnalyticsCharts({
       const avg = values.length ? values.reduce((a, b) => a + b, 0) / values.length : 0;
       return { month, avg };
     });
-  }, [summary]);
+  }, [settled]);
 
   if (!summary.length) {
     return <div className="rounded-xl border border-border bg-card p-12 text-center text-secondary">No data yet. Add or import data to see analytics.</div>;
@@ -347,6 +369,21 @@ export function AnalyticsCharts({
 
   return (
     <div className="space-y-10">
+      {stillFilling.length > 0 && (
+        <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4">
+          <p className="text-body font-semibold text-primary">
+            {stillFilling.map((m) => format(parseISO(m.month), 'MMMM yyyy')).join(' and ')}{' '}
+            {stillFilling.length === 1 ? 'is' : 'are'} still being filled in
+          </p>
+          <p className="mt-1 text-caption leading-relaxed text-secondary">
+            Distributor reports arrive late, so these months are left out of every number on this
+            page. They stay on the month-by-month chart so you can see them, but they do not count
+            towards best and lowest months, growth, or any comparison — otherwise a half-entered
+            month would look like our worst month ever.
+          </p>
+        </div>
+      )}
+
       {/* ============ Controls + headline stats ============ */}
       <div className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">

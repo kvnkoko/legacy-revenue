@@ -9,7 +9,13 @@ import { RevenueArchitectureDiagram } from '@/components/dashboard/RevenueArchit
 import { ChartCard, StatTile } from '@/components/charts/chart-kit';
 import { seriesColor } from '@/lib/series-palette';
 import { Explain } from '@/components/charts/plain-language';
-import { plainChange, sentenceCase } from '@/lib/plain-language';
+import { plainChange } from '@/lib/plain-language';
+import { PeriodPicker } from '@/components/dashboard/PeriodPicker';
+import {
+  completeRows,
+  incompleteTail,
+  latestCompleteMonth as findLatestComplete,
+} from '@/lib/data-completeness';
 
 export const dynamic = 'force-dynamic';
 
@@ -51,58 +57,100 @@ export default async function DashboardPage({
   const monthsAll = matrix.rows;
   const months = loadAll ? monthsAll : monthsAll.filter((r) => r.month >= fromMonth);
 
+  /*
+   * Which months can the headline figures use?
+   *
+   * Distributor reports arrive late, so the newest recorded month is usually
+   * part-filled. Figures built from it read as a collapse in revenue when
+   * nothing has actually happened, which is why the month-over-month card was
+   * removed entirely — it was wrong more often than it was right.
+   *
+   * Every headline below therefore uses COMPLETE months only, and the page says
+   * which months those are.
+   */
+  const settled = completeRows(monthsAll, matrix.streams);
+  const stillFilling = incompleteTail(monthsAll, matrix.streams);
+  const latestComplete = findLatestComplete(monthsAll, matrix.streams);
   const latestRecordedMonth = monthsAll.length ? monthsAll[monthsAll.length - 1] : null;
-  const prevRecordedMonth = monthsAll.length > 1 ? monthsAll[monthsAll.length - 2] : null;
-  const latestRecordedYear = latestRecordedMonth ? new Date(latestRecordedMonth.month).getFullYear() : null;
 
-  const totalRevenue = Number(latestRecordedMonth?.total ?? 0);
-  const momGrowth =
-    prevRecordedMonth && Number(prevRecordedMonth.total)
-      ? ((totalRevenue - Number(prevRecordedMonth.total)) / Number(prevRecordedMonth.total)) * 100
-      : null;
+  // The period the cards cover. Defaults to the newest month we can trust.
+  const asStr = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
+  const defaultMonth = latestComplete?.month ?? latestRecordedMonth?.month ?? monthKey(new Date());
+  const normalise = (raw: string | undefined, fallback: string) => {
+    const value = raw?.trim();
+    if (!value) return fallback;
+    // Accept YYYY-MM from the month input as well as a full date.
+    const candidate = /^\d{4}-\d{2}$/.test(value) ? `${value}-01` : value;
+    return /^\d{4}-\d{2}-\d{2}$/.test(candidate) ? candidate : fallback;
+  };
+  let periodFrom = normalise(asStr(searchParams?.from), defaultMonth);
+  let periodTo = normalise(asStr(searchParams?.to), defaultMonth);
+  if (periodFrom > periodTo) [periodFrom, periodTo] = [periodTo, periodFrom];
 
-  // Same calendar month one year earlier, when history reaches that far.
-  const yoyGrowth = (() => {
-    if (!latestRecordedMonth) return null;
-    const d = new Date(latestRecordedMonth.month);
-    d.setFullYear(d.getFullYear() - 1);
-    const prior = monthsAll.find((r) => r.month === monthKey(d));
-    if (!prior || !Number(prior.total)) return null;
-    return ((totalRevenue - Number(prior.total)) / Number(prior.total)) * 100;
-  })();
+  const periodRows = settled.filter((r) => r.month >= periodFrom && r.month <= periodTo);
+  const periodHasData = periodRows.length > 0;
+  const periodLabel =
+    periodFrom === periodTo
+      ? monthName(periodFrom)
+      : `${monthName(periodFrom)} – ${monthName(periodTo)}`;
 
-  const ytdTotal =
-    latestRecordedYear == null
-      ? 0
-      : monthsAll
-          .filter((r) => new Date(r.month).getFullYear() === latestRecordedYear)
-          .reduce((s, r) => s + Number(r.total ?? 0), 0);
+  // Months inside the chosen range that were skipped because they are unsettled.
+  const excludedInPeriod = stillFilling.filter((m) => m.month >= periodFrom && m.month <= periodTo);
 
-  const bestStream = latestRecordedMonth
-    ? matrix.streams.reduce<{ name: string; color: string; value: number } | null>((best, s) => {
-        const val = Number(latestRecordedMonth[s.slug] ?? 0);
-        return !best || val > best.value ? { name: s.name, color: s.color, value: val } : best;
+  const totalRevenue = periodRows.reduce((sum, r) => sum + Number(r.total ?? 0), 0);
+  const latestRecordedYear = latestComplete ? new Date(latestComplete.month).getFullYear() : null;
+
+  // Year to date, counting settled months only, so a part-filled month cannot
+  // drag the running total down.
+  const ytdRows = latestRecordedYear == null
+    ? []
+    : settled.filter((r) => new Date(r.month).getFullYear() === latestRecordedYear);
+  const ytdTotal = ytdRows.reduce((s, r) => s + Number(r.total ?? 0), 0);
+  const ytdThrough = ytdRows.length ? monthName(ytdRows[ytdRows.length - 1].month) : null;
+
+  const bestStream = periodHasData
+    ? matrix.streams.reduce<{ name: string; value: number } | null>((best, stream) => {
+        const val = periodRows.reduce((sum, r) => sum + Number(r[stream.slug] ?? 0), 0);
+        return !best || val > best.value ? { name: stream.name, value: val } : best;
       }, null)
     : null;
   const bestStreamShare = bestStream && totalRevenue ? (bestStream.value / totalRevenue) * 100 : null;
-  const bestStreamIndex = bestStream ? matrix.streams.findIndex((s) => s.name === bestStream.name) : -1;
+  const bestStreamIndex = bestStream ? matrix.streams.findIndex((x) => x.name === bestStream.name) : -1;
   // Server-rendered, so resolve the dark step; the client charts pick per theme.
   const bestStreamColor = bestStreamIndex >= 0 ? seriesColor(bestStreamIndex, false) : undefined;
 
-  /*
-   * Is the newest recorded month probably still being filled in?
-   *
-   * A partly-entered month makes the headline change look catastrophic (a -62%
-   * drop) when the real cause is that most streams have not been typed in yet.
-   * That is a fast route to a wrong business decision, so compare how many
-   * streams reported a figure with what is normal for recent months.
-   */
-  const reportingCount = (row: Record<string, unknown> | null) =>
-    row ? matrix.streams.filter((s) => Number(row[s.slug] ?? 0) > 0).length : 0;
-  const priorCounts = monthsAll.slice(-7, -1).map(reportingCount).filter((n) => n > 0).sort((a, b) => a - b);
-  const typicalReporting = priorCounts.length ? priorCounts[Math.floor(priorCounts.length / 2)] : 0;
-  const latestReporting = reportingCount(latestRecordedMonth);
-  const looksIncomplete = typicalReporting > 0 && latestReporting < typicalReporting * 0.7;
+  // Same period one year earlier — a like-for-like comparison that survives late
+  // reporting, unlike comparing with the month before.
+  const shiftYear = (month: string, delta: number) => {
+    const d = new Date(month);
+    d.setFullYear(d.getFullYear() + delta);
+    return monthKey(d);
+  };
+  const priorYearRows = settled.filter(
+    (r) => r.month >= shiftYear(periodFrom, -1) && r.month <= shiftYear(periodTo, -1)
+  );
+  const priorYearTotal = priorYearRows.reduce((sum, r) => sum + Number(r.total ?? 0), 0);
+  const yoyChange =
+    priorYearRows.length === periodRows.length && priorYearTotal > 0
+      ? ((totalRevenue - priorYearTotal) / priorYearTotal) * 100
+      : null;
+
+  const presets = (() => {
+    if (!latestComplete) return [];
+    const last = latestComplete.month;
+    const back = (n: number) => {
+      const d = new Date(last);
+      d.setMonth(d.getMonth() - (n - 1));
+      return monthKey(d);
+    };
+    const year = new Date(last).getFullYear();
+    return [
+      { label: 'Latest full month', from: last, to: last },
+      { label: 'Last 3 months', from: back(3), to: last },
+      { label: 'Last 12 months', from: back(12), to: last },
+      { label: `${year}`, from: `${year}-01-01`, to: last },
+    ];
+  })();
 
   const expected = monthRange('2025-01-01', monthKey(new Date()));
   const existingSet = new Set(monthsAll.map((m) => m.month));
@@ -111,14 +159,30 @@ export default async function DashboardPage({
   const currentCalendarMonth = monthKey(new Date());
   const hasCurrentData = existingSet.has(currentCalendarMonth);
 
-  const latestMonthKey = latestRecordedMonth?.month ?? '';
-  const totalFor = (slug: string) => Number(streamTotals[slug]?.[latestMonthKey] ?? 0);
+  // The architecture diagram shows one month, so it uses the newest settled one.
+  const diagramMonth = latestComplete?.month ?? '';
+  const totalFor = (slug: string) => Number(streamTotals[slug]?.[diagramMonth] ?? 0);
+  const diagramRow = latestComplete;
   const directCurrent = matrix.streams
-    .filter((s) => !['ringtune', 'eauc', 'combo'].includes(s.slug))
-    .reduce((sum, s) => sum + Number(latestRecordedMonth?.[s.slug] ?? 0), 0);
+    .filter((s2) => !['ringtune', 'eauc', 'combo'].includes(s2.slug))
+    .reduce((sum, s2) => sum + Number(diagramRow?.[s2.slug] ?? 0), 0);
 
-  const latestLabel = latestRecordedMonth ? monthName(latestRecordedMonth.month) : 'the latest month';
-  const prevLabel = prevRecordedMonth ? monthName(prevRecordedMonth.month) : 'the month before';
+  const trendRows = loadAll ? monthsAll : months;
+
+  // The donut takes a single row, so collapse the chosen period into per-stream
+  // totals. Built from settled months only, like every other headline figure.
+  const periodTotalsRow = periodHasData
+    ? {
+        month: periodTo,
+        total: totalRevenue,
+        ...Object.fromEntries(
+          matrix.streams.map((stream) => [
+            stream.slug,
+            periodRows.reduce((sum, r) => sum + Number(r[stream.slug] ?? 0), 0),
+          ])
+        ),
+      }
+    : null;
 
   return (
     <div className="space-y-6">
@@ -129,7 +193,31 @@ export default async function DashboardPage({
         </p>
       </div>
 
-      {!hasCurrentData && (
+      {stillFilling.length > 0 && (
+        <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4">
+          <p className="text-body font-semibold text-primary">
+            {stillFilling.length === 1
+              ? `${monthName(stillFilling[0].month)} is still being filled in`
+              : `${stillFilling.length} months are still being filled in`}
+          </p>
+          <p className="mt-1 text-caption leading-relaxed text-secondary">
+            {stillFilling
+              .map((m) => `${monthName(m.month)} has ${m.reporting} of about ${m.usual} streams`)
+              .join('; ')}
+            . Distributor reports arrive late, so the figures below leave these months out
+            on purpose. They will be included automatically once the rest of the figures
+            are entered.
+          </p>
+          <a
+            href={`/entry?month=${stillFilling[stillFilling.length - 1].month}`}
+            className="mt-2 inline-block text-caption font-medium text-gold underline"
+          >
+            Enter missing figures
+          </a>
+        </div>
+      )}
+
+      {!hasCurrentData && stillFilling.length === 0 && (
         <div className="rounded-xl border border-border bg-elevated p-3.5 text-body text-secondary">
           <span className="font-medium text-primary">{monthName(currentCalendarMonth)}</span> has not
           been filled in yet.{' '}
@@ -139,71 +227,88 @@ export default async function DashboardPage({
         </div>
       )}
 
-      {looksIncomplete && (
-        <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4">
-          <p className="text-body font-semibold text-primary">
-            Careful: {latestLabel} may not be finished yet
+      {/* ============ Period the figures cover ============ */}
+      <div className="rounded-2xl border border-border bg-card p-4 sm:p-5">
+        <div className="mb-3">
+          <p className="text-body font-semibold text-primary">Figures below cover {periodLabel}</p>
+          <p className="mt-0.5 text-caption text-secondary">
+            Only months with their full set of figures are counted. Change the months to compare any
+            period you like.
           </p>
-          <p className="mt-1 text-caption leading-relaxed text-secondary">
-            Only {latestReporting} of our {matrix.streams.length} streams have figures for{' '}
-            {latestLabel}, but a normal month has about {typicalReporting}. So the numbers below will
-            look lower than they really are, and the change from last month is probably not a real
-            drop in business. Please finish entering {latestLabel} before using these figures in a
-            report or a decision.
+        </div>
+        <PeriodPicker
+          from={periodFrom}
+          to={periodTo}
+          latestCompleteMonth={latestComplete?.month ?? null}
+          presets={presets}
+        />
+        {excludedInPeriod.length > 0 && (
+          <p className="mt-3 text-caption text-amber-300">
+            {excludedInPeriod.map((m) => monthName(m.month)).join(', ')}{' '}
+            {excludedInPeriod.length === 1 ? 'is' : 'are'} inside these dates but not counted yet,
+            because {excludedInPeriod.length === 1 ? 'it is' : 'they are'} still being filled in.
           </p>
-          <a
-            href={`/entry?month=${latestRecordedMonth?.month ?? currentCalendarMonth}`}
-            className="mt-2 inline-block text-caption font-medium text-gold underline"
-          >
-            Finish entering {latestLabel}
-          </a>
+        )}
+      </div>
+
+      {/* ============ Headline numbers, in plain language ============ */}
+      {!periodHasData ? (
+        <div className="rounded-2xl border border-border bg-card p-6 text-body text-secondary">
+          No months with complete figures fall inside {periodLabel}. Choose a wider period, or
+          finish entering the months listed above.
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          <StatTile
+            accent
+            label="Money earned"
+            magnitude={totalRevenue}
+            value={<FormattedCurrency value={totalRevenue} />}
+            sub={
+              periodRows.length === 1
+                ? `in ${periodLabel}`
+                : `across ${periodRows.length} full months (${periodLabel})`
+            }
+          />
+          <StatTile
+            label={`Earned in ${latestRecordedYear ?? 'this year'} so far`}
+            magnitude={ytdTotal}
+            value={<FormattedCurrency value={ytdTotal} />}
+            sub={ytdThrough ? `complete months up to ${ytdThrough}` : 'no complete months yet'}
+          />
+          <StatTile
+            label="Biggest earner"
+            value={bestStream?.name ?? '—'}
+            dot={bestStreamColor}
+            sub={
+              bestStreamShare != null
+                ? `${bestStreamShare.toFixed(0)}% of the money in ${periodLabel}`
+                : 'no data yet'
+            }
+          />
         </div>
       )}
 
-      {/* ============ Headline numbers, in plain language ============ */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatTile
-          accent
-          label="Money earned"
-          magnitude={totalRevenue}
-          value={<FormattedCurrency value={totalRevenue} />}
-          sub={`in ${latestRecordedMonth ? latestLabel : 'no month yet'}${
-            looksIncomplete ? ' · still being filled in' : ''
-          }`}
-        />
-        <StatTile
-          label="Compared with last month"
-          value={momGrowth != null ? sentenceCase(plainChange(momGrowth)) : '—'}
-          valueColor={
-            looksIncomplete
-              ? 'rgb(var(--color-secondary))'
-              : momGrowth != null && momGrowth < -1
-                ? 'rgb(var(--color-danger))'
-                : undefined
-          }
-          sub={
-            looksIncomplete
-              ? 'not reliable until the month is complete'
-              : `${latestLabel} against ${prevLabel}`
-          }
-        />
-        <StatTile
-          label={`Earned in ${latestRecordedYear ?? 'this year'} so far`}
-          magnitude={ytdTotal}
-          value={<FormattedCurrency value={ytdTotal} />}
-          sub={`every month of ${latestRecordedYear ?? '—'} added together`}
-        />
-        <StatTile
-          label="Biggest earner"
-          value={bestStream?.name ?? '—'}
-          dot={bestStreamColor}
-          sub={
-            bestStreamShare != null
-              ? `${bestStreamShare.toFixed(0)}% of the money in ${latestLabel}`
-              : 'no data yet'
-          }
-        />
-      </div>
+      {periodHasData && (
+        <div className="rounded-2xl border border-border bg-card p-4 sm:p-5">
+          <p className="text-body font-semibold text-primary">
+            Compared with the same months a year earlier
+          </p>
+          {yoyChange != null ? (
+            <p className="mt-1.5 text-caption leading-relaxed text-secondary">
+              {periodLabel} {plainChange(yoyChange)} against the same period in{' '}
+              {new Date(periodFrom).getFullYear() - 1}. Comparing the same months a year apart is
+              the fairest measure we have, because both periods have had time to be filled in —
+              unlike comparing with last month, where the reports have usually not arrived yet.
+            </p>
+          ) : (
+            <p className="mt-1.5 text-caption leading-relaxed text-secondary">
+              We cannot compare this period yet: the same months a year earlier are not all
+              complete in our records. Pick a period where both years have full figures.
+            </p>
+          )}
+        </div>
+      )}
 
       <QuickActions />
       <div className="text-left sm:text-right">
@@ -219,26 +324,26 @@ export default async function DashboardPage({
           subtitle="Taller means we earned more that month. Each colour is one stream."
           className="lg:col-span-2"
         >
-          <RevenueTrendChart data={months} streams={matrix.streams} />
+          <RevenueTrendChart data={trendRows} streams={matrix.streams} />
           <Explain
             shows="The coloured bands stack up to the month's total, so you can see both the total and which streams made it up. Use the buttons above the chart to look at a shorter or longer period."
             means={
-              momGrowth != null && !looksIncomplete
-                ? `Compared with ${prevLabel}, the total ${plainChange(momGrowth)}${
-                    yoyGrowth != null ? `, and against the same month last year it ${plainChange(yoyGrowth)}` : ''
-                  }. Watch the direction over several months rather than reacting to one month on its own.`
-                : looksIncomplete
-                  ? `${latestLabel} is not finished, so the last part of this line will keep rising as figures are entered. Judge the trend from the completed months only.`
+              stillFilling.length
+                ? `The chart shows every month we have recorded, including ${stillFilling
+                    .map((m) => monthName(m.month))
+                    .join(' and ')}, which ${stillFilling.length === 1 ? 'is' : 'are'} still being filled in. The drop at the right-hand end is missing figures, not lost business — judge the direction from the earlier months.`
+                : yoyChange != null
+                  ? `Against the same months a year earlier, the total ${plainChange(yoyChange)}. Watch the direction over several months rather than reacting to one month on its own.`
                   : undefined
             }
           />
         </ChartCard>
 
         <ChartCard
-          title={`Where did the money come from in ${latestRecordedMonth ? latestLabel : 'the latest month'}?`}
-          subtitle="Biggest earner first, with its share of the total"
+          title={`Where did the money come from in ${periodHasData ? periodLabel : 'the latest full month'}?`}
+          subtitle="Biggest earner first, with its share of the total. Complete months only."
         >
-          <StreamDonutChart data={latestRecordedMonth} streams={matrix.streams} />
+          <StreamDonutChart data={periodTotalsRow} streams={matrix.streams} />
           <Explain
             shows="Each colour is one revenue stream. The percentage is that stream's share of everything we earned that month. Smaller streams are grouped together as “Other” so the colours stay easy to tell apart."
             means={
@@ -266,10 +371,10 @@ export default async function DashboardPage({
           atom: totalFor('atom'),
           ooredoo: totalFor('ooredoo'),
           direct: directCurrent,
-          ringtune: Number(latestRecordedMonth?.ringtune ?? 0),
-          eauc: Number(latestRecordedMonth?.eauc ?? 0),
-          combo: Number(latestRecordedMonth?.combo ?? 0),
-          total: totalRevenue,
+          ringtune: Number(diagramRow?.ringtune ?? 0),
+          eauc: Number(diagramRow?.eauc ?? 0),
+          combo: Number(diagramRow?.combo ?? 0),
+          total: Number(diagramRow?.total ?? 0),
         }}
       />
 

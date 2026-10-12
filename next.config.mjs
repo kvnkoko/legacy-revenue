@@ -23,6 +23,11 @@ for (const name of ['NEXT_PUBLIC_SUPABASE_URL', 'NEXT_PUBLIC_SUPABASE_ANON_KEY']
   if (value) publicEnv[name] = value;
   else missingEnv.push(name);
 }
+// Build id, shown on /connection-check so a stale cached app is obvious.
+{
+  const sha = process.env.VERCEL_GIT_COMMIT_SHA;
+  if (sha) publicEnv.NEXT_PUBLIC_BUILD_SHA = sha.slice(0, 7);
+}
 // Optional escape hatch: skip the same-origin proxy and call Supabase directly.
 {
   const direct = env.NEXT_PUBLIC_SUPABASE_DIRECT ?? process.env.NEXT_PUBLIC_SUPABASE_DIRECT;
